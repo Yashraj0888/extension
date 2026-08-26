@@ -646,3 +646,5 @@ cd aftermeet
 4. Join Meet → turn **captions** on → finish meeting → **Open app**
 
 You’re ready. Review [TERMS.md](TERMS.md) and [PRIVACY.md](PRIVACY.md) before using AfterMeet with real meetings.
+
+Test commit
