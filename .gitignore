@@ -1,0 +1,39 @@
+# Secrets / local env (never commit real keys)
+.env
+.env.local
+.env.*.local
+*.pem
+*.p12
+*.key
+credentials.json
+client_secret*.json
+service-account*.json
+
+# OS / editor
+.DS_Store
+Thumbs.db
+Desktop.ini
+.idea/
+.vscode/
+*.swp
+*~
+
+# Logs & caches
+*.log
+npm-debug.log*
+node_modules/
+.cache/
+dist/
+build/
+coverage/
+
+# Local backups / personal meeting exports
+backup/
+backups/
+*.local.json
+meetings-export*.json
+
+# Chrome / packaging
+*.crx
+*.pem
+web-ext-artifacts/
