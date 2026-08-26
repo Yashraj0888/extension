@@ -137,7 +137,7 @@ Before you start, make sure you have:
 Replace the URL with your fork or the official repo once it is published:
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/aftermeet.git
+[git clone https://github.com/Yashraj0888/extension.git
 ```
 
 ```bash
