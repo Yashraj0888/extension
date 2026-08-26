@@ -1,0 +1,19 @@
+/* ============================================================
+   AfterMeet — styles entry
+   Split modules live in ./styles/ — keep this file as the single import.
+   Colors live in theme.css.
+   ============================================================ */
+
+@import url("styles/base.css");
+@import url("styles/sidebar.css");
+@import url("styles/tasks-people.css");
+@import url("styles/shell.css");
+@import url("styles/home.css");
+@import url("styles/meeting.css");
+@import url("styles/chat.css");
+@import url("styles/transcript.css");
+@import url("styles/summary.css");
+@import url("styles/actions.css");
+@import url("styles/right-panel.css");
+@import url("styles/settings.css");
+@import url("styles/ui.css");

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/YOUR_USERNAME/aftermeet/security/advisories/new
+    about: Report a security issue privately (see SECURITY.md). Do not file a public bug.
+  - name: Read the docs
+    url: https://github.com/YOUR_USERNAME/aftermeet#table-of-contents
+    about: Setup, privacy, and terms before opening an issue.

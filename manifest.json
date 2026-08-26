@@ -1,0 +1,81 @@
+{
+  "manifest_version": 3,
+  "name": "AfterMeet",
+  "version": "3.5.7",
+  "description": "AfterMeet captures Google Meet captions, chats with AI about your meetings, generates summaries and action items, and keeps everything local.",
+  "permissions": [
+    "storage",
+    "unlimitedStorage",
+    "downloads",
+    "scripting",
+    "activeTab",
+    "tabs",
+    "identity"
+  ],
+  "host_permissions": [
+    "https://meet.google.com/*",
+    "https://generativelanguage.googleapis.com/*",
+    "https://api.openai.com/*",
+    "https://api.anthropic.com/*",
+    "https://api.deepseek.com/*",
+    "https://www.googleapis.com/*"
+  ],
+  "optional_host_permissions": [
+    "https://*/*",
+    "http://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://meet.google.com/*"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "AfterMeet",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "app/app.html",
+        "app/app.js",
+        "app/app.css",
+        "app/styles/*",
+        "app/icons.js",
+        "app/chat-ui.js",
+        "app/custom-select.js",
+        "app/theme.js",
+        "app/theme.css",
+        "app/ui-modal.js",
+        "app/ui-date-range.js",
+        "app/views/*",
+        "app/components/*",
+        "app/services/*",
+        "icons/*"
+      ],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

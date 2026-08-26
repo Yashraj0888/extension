@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html class="popup-ui" lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=360">
+  <title>AfterMeet</title>
+  <link rel="stylesheet" href="app/theme.css">
+  <link rel="stylesheet" href="popup.css">
+  <script>
+    /* Restore theme before first paint — no animation */
+    (function () {
+      try {
+        var p = localStorage.getItem("amn_theme") || "system";
+        var d = p === "dark" || (p === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
+        var root = document.documentElement;
+        root.setAttribute("data-theme", d ? "dark" : "light");
+        root.setAttribute("data-theme-pref", p);
+        root.style.colorScheme = d ? "dark" : "light";
+        root.classList.toggle("dark", !!d);
+      } catch (e) {}
+    })();
+  </script>
+</head>
+<body>
+  <div class="popup">
+    <header class="popup__header">
+      <div class="popup__brand">
+        <img class="popup__logo" src="icons/icon48.png" alt="" width="24" height="24">
+        <h1 class="popup__title">AfterMeet</h1>
+      </div>
+      <div class="popup__header-actions">
+        <span class="popup__live" id="liveBadge" aria-live="polite">
+          <span class="popup__live-dot" aria-hidden="true"></span>
+          <span id="liveBadgeText">Recording</span>
+        </span>
+        <button
+          type="button"
+          class="theme-toggle"
+          data-theme-toggle
+          aria-label="Switch to dark mode"
+          title="Switch to dark mode"
+        >
+          <span class="theme-toggle-thumb" aria-hidden="true">
+            <span class="theme-toggle-icon sun" data-theme-icon="sun">
+              <span class="icon-wrap" style="width:13px;height:13px">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
+              </span>
+            </span>
+            <span class="theme-toggle-icon moon" data-theme-icon="moon">
+              <span class="icon-wrap" style="width:13px;height:13px">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+              </span>
+            </span>
+          </span>
+        </button>
+      </div>
+    </header>
+
+    <main class="popup__main">
+      <button type="button" id="openAppBtn" class="popup__cta">
+        <span class="icon-wrap" style="width:13px;height:13px" aria-hidden="true">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
+        </span>
+        Open notes library
+      </button>
+
+      <div class="popup__split">
+        <button type="button" class="popup__ghost" id="joinMeetBtn">Start Meet</button>
+      </div>
+
+      <section class="popup__card" aria-label="Meeting statistics">
+        <div class="popup__stats">
+          <div class="popup__stat"><b id="statMeetings">0</b><span>Meetings</span></div>
+          <div class="popup__stat"><b id="statActions">0</b><span>Actions</span></div>
+          <div class="popup__stat"><b id="statHighlights">0</b><span>Highlights</span></div>
+        </div>
+        <div class="popup__row">
+          <button type="button" class="popup__btn popup__btn--grow" id="openLastBtn">Open last meeting</button>
+          <button type="button" class="popup__btn" id="copyActionsBtn">Copy actions</button>
+        </div>
+      </section>
+
+      <section class="popup__card" aria-label="AI provider">
+        <div class="popup__card-head">
+          <h2>AI provider</h2>
+          <a href="#" id="apiKeyHelpLink" target="_blank" rel="noopener">Get key</a>
+        </div>
+
+        <div class="popup__field">
+          <label for="providerSelect">Provider</label>
+          <select id="providerSelect"></select>
+        </div>
+
+        <div class="popup__field">
+          <label for="selectedModel">Model</label>
+          <select id="selectedModel"></select>
+        </div>
+
+        <div id="providerFields">
+          <div class="popup__field">
+            <label id="apiKeyLabel" for="apiKey">API key</label>
+            <div class="popup__keyline">
+              <input type="password" id="apiKey" placeholder="Paste key…" autocomplete="off">
+              <button type="button" class="popup__icon-btn" id="toggleKeyVisibility" title="Show/hide">
+                <span class="icon-wrap" style="width:13px;height:13px" aria-hidden="true">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></svg>
+                </span>
+              </button>
+            </div>
+          </div>
+
+          <div class="popup__field" id="baseUrlGroup" hidden>
+            <label for="baseUrl">Base URL</label>
+            <input type="text" id="baseUrl" placeholder="https://api.example.com/v1">
+          </div>
+
+          <div class="popup__field" id="customModelGroup" hidden>
+            <label for="customModel">Custom model</label>
+            <input type="text" id="customModel" placeholder="model-id">
+          </div>
+
+          <div class="popup__row">
+            <button type="button" class="popup__btn" id="testConnectionBtn">Test connection</button>
+            <span class="popup__status" id="testStatus"></span>
+          </div>
+        </div>
+
+        <p class="popup__hint">Keys stay in your browser — sent only to the chosen provider.</p>
+      </section>
+
+      <section class="popup__card" aria-label="During meetings">
+        <div class="popup__card-head"><h2>During meetings</h2></div>
+        <div class="popup__toggles">
+          <label class="popup__toggle">
+            <input type="checkbox" id="autoDownloadSummary" checked>
+            <div>
+              <div class="popup__toggle-title">Offer summary download at end</div>
+              <div class="popup__toggle-sub">Confirm scope and format before saving.</div>
+            </div>
+          </label>
+        </div>
+        <div class="popup__field">
+          <label for="docFormat">Default export format</label>
+          <select id="docFormat">
+            <option value="pdf" selected>PDF (.pdf)</option>
+            <option value="doc">Word (.doc)</option>
+            <option value="md">Markdown (.md)</option>
+            <option value="txt">Plain text (.txt)</option>
+            <option value="rtf">Rich text (.rtf)</option>
+            <option value="html">HTML (.html)</option>
+          </select>
+        </div>
+      </section>
+
+      <details class="popup__help">
+        <summary>Meet captions setup <span style="color:var(--ink-4);font-weight:500">tap</span></summary>
+        <ol>
+          <li>Join the call on <strong>meet.google.com</strong>.</li>
+          <li>Turn on <strong>Captions</strong> (or let AfterMeet enable them).</li>
+          <li>Keep the AfterMeet widget open while the meeting runs.</li>
+        </ol>
+      </details>
+
+      <div class="popup__foot">
+        <button type="button" id="saveBtn" class="popup__save">Save settings</button>
+        <button type="button" id="optionsBtn" class="popup__link">More settings &amp; configuration…</button>
+      </div>
+      <div class="popup__toast" id="toast">Saved</div>
+    </main>
+  </div>
+
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

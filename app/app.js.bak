@@ -1,0 +1,3026 @@
+import MeetingStore from "./services/meeting-store.js";
+import AIService from "./services/ai.js";
+import { PROVIDER_DEFS, testConnection } from "./services/providers.js";
+import {
+  getSettings,
+  saveSettings,
+  ensureHostPermission,
+  getAllTemplates,
+  DEFAULT_PROMPT,
+} from "./services/settings.js";
+import { bindCustomSelects, enhanceSelects } from "./custom-select.js";
+import {
+  hasCompletedBackupConsent,
+  isFolderBackupSupported,
+  pickBackupFolder,
+  setBackupMode,
+  restoreMeetingsFromFolder,
+  syncAllMeetingsToFolder,
+  getBackupMode,
+} from "./services/folder-backup.js";
+import { showConfirm, showPrompt, showDialog } from "./ui-modal.js";
+import {
+  initTheme,
+  bindThemeToggles,
+  hydrateThemeToggleIcons,
+  applyTheme,
+  getThemePref,
+} from "./theme.js";
+import {
+  GLOBAL_PROMPTS,
+  GLOBAL_QUICK_ACTIONS,
+  MEETING_PROMPTS,
+  MEETING_QUICK_ACTIONS,
+  suggestionButtonsHtml,
+  quickActionsHtml,
+  chatMessageHtml,
+  thinkingMessageHtml,
+  startPixelLoader,
+} from "./chat-ui.js";
+
+// === APP STATE ===
+const state = {
+  route: "home",
+  currentMeetingId: null,
+  currentMeeting: null,
+  currentTab: "chat",
+  isSidebarCollapsed: false,
+  isGenerating: false,
+  settingsTab: "providers",
+  editingTemplateId: "default",
+  pendingSearchQuery: "",
+  focusMode: false,
+  askSelectedIds: [],
+  askMeetingsCache: new Map(),
+  askShowPrompts: false,
+};
+
+// === DOM REFS ===
+const dom = {};
+function cacheDom() {
+  dom.app = document.getElementById("app");
+  dom.leftSidebar = document.getElementById("left-sidebar");
+  dom.viewHome = document.getElementById("view-home");
+  dom.viewMeetings = document.getElementById("view-meetings");
+  dom.viewFavorites = document.getElementById("view-favorites");
+  dom.viewSearch = document.getElementById("view-search");
+  dom.viewAsk = document.getElementById("view-ask");
+  dom.viewSettings = document.getElementById("view-settings");
+  dom.viewMeeting = document.getElementById("view-meeting");
+  dom.collapseSidebar = document.getElementById("collapseSidebar");
+  dom.recentMeetingsList = document.getElementById("recentMeetingsList");
+  dom.meetingCount = document.getElementById("meetingCount");
+  dom.meetingSearch = document.getElementById("meetingSearch");
+  dom.chatContainer = document.getElementById("chatContainer");
+  dom.transcriptContainer = document.getElementById("transcriptContainer");
+  dom.summaryContainer = document.getElementById("summaryContainer");
+  dom.actionItemsContainer = document.getElementById("actionItemsContainer");
+  dom.highlightsContainer = document.getElementById("highlightsContainer");
+  dom.toast = document.getElementById("toast");
+  dom.storageFill = document.getElementById("storageFill");
+  dom.storageText = document.getElementById("storageText");
+  dom.meetingViewTitle = document.getElementById("meetingViewTitle");
+  dom.meetingViewMeta = document.getElementById("meetingViewMeta");
+  dom.meetingTagsRow = document.getElementById("meetingTagsRow");
+  dom.btnFavorite = document.getElementById("btnFavorite");
+  dom.btnPin = document.getElementById("btnPin");
+  dom.btnDeleteMeeting = document.getElementById("btnDeleteMeeting");
+  dom.btnEditTitle = document.getElementById("btnEditTitle");
+  dom.backToHome = document.getElementById("backToHome");
+  dom.rightHome = document.getElementById("rightHome");
+  dom.rightMeeting = document.getElementById("rightMeeting");
+}
+
+// === ICONS ===
+function icon(name, size = 18) {
+  return `<span class="icon-wrap" style="width:${size}px;height:${size}px">${window.LucideIcons[name] || window.LucideIcons.sparkles}</span>`;
+}
+
+function hydrateStaticIcons() {
+  document.getElementById("brandIcon").innerHTML =
+    `<img src="../icons/icon48.png" alt="Meeting Notes" width="26" height="26">`;
+  document.getElementById("collapseSidebar").innerHTML = icon("panelLeft", 15);
+  document.getElementById("searchIcon").innerHTML = icon("search", 14);
+  document.getElementById("openMeetBtn").innerHTML = `${icon("meet", 16)} Start on Meet`;
+  document.getElementById("openZoomBtn").innerHTML = `${icon("video", 16)} Start on Zoom`;
+  document.getElementById("importTranscriptBtn").innerHTML = `${icon("upload", 16)} Import transcript`;
+  document.getElementById("backToHome").innerHTML = icon("arrowLeft", 16);
+  document.getElementById("btnEditTitle").innerHTML = icon("edit", 13);
+  document.getElementById("clearGlobalChatBtn").innerHTML = `${icon("trash", 13)} Clear conversation`;
+  const askMark = document.getElementById("askTitleMark");
+  if (askMark) askMark.innerHTML = icon("askAi", 20);
+
+  const setNavBtn = (id, name, label) => {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = `${icon(name, 14)}<span class="nav-btn-label">${label}</span>`;
+  };
+  setNavBtn("navBtnNewMeeting", "plus", "New notes");
+  setNavBtn("navBtnImport", "upload", "Import");
+  setNavBtn("navBtnExport", "download", "Export");
+  setNavBtn("navBtnAsk", "askAi", "Ask AI");
+  setNavBtn("navBtnShortcuts", "keyboard", "Shortcuts");
+  setNavBtn("navBtnFocus", "focus", "Focus");
+
+  document.getElementById("nav-home").innerHTML = `${icon("home", 16)} <span class="nav-label">Home</span>`;
+  document.getElementById("nav-meetings").innerHTML = `${icon("calendar", 16)} <span class="nav-label">All meetings</span> <span class="nav-count" id="meetingCount">0</span>`;
+  document.getElementById("nav-favorites").innerHTML = `${icon("star", 16)} <span class="nav-label">Favorites</span>`;
+  document.getElementById("nav-search").innerHTML = `${icon("search", 16)} <span class="nav-label">Search</span>`;
+  document.getElementById("nav-ask").innerHTML = `${icon("askAi", 16)} <span class="nav-label">Ask AI</span>`;
+  document.getElementById("nav-settings").innerHTML = `${icon("settings", 16)} <span class="nav-label">Settings</span>`;
+
+  // Re-cache nodes replaced above (innerHTML recreates them).
+  dom.meetingCount = document.getElementById("meetingCount");
+  dom.navItems = document.querySelectorAll(".nav-item");
+  updateCollapseIcon();
+
+  dom.btnFavorite.innerHTML = icon("star", 16);
+  dom.btnPin.innerHTML = icon("pin", 16);
+  dom.btnDeleteMeeting.innerHTML = icon("trash", 16);
+
+  document.querySelector('.tab[data-tab="chat"]').innerHTML = `${icon("messageSquare", 14)} AI chat`;
+  document.querySelector('.tab[data-tab="transcript"]').innerHTML = `${icon("fileText", 14)} Transcript`;
+  document.querySelector('.tab[data-tab="summary"]').innerHTML = `${icon("wand", 14)} Summary`;
+  document.querySelector('.tab[data-tab="actionitems"]').innerHTML = `${icon("listChecks", 14)} Action items`;
+  document.querySelector('.tab[data-tab="highlights"]').innerHTML = `${icon("highlighter", 14)} Highlights`;
+
+  document.getElementById("btnCopyTranscript").innerHTML = `${icon("copy", 15)} Copy transcript`;
+  document.getElementById("btnCopySummary").innerHTML = `${icon("copy", 15)} Copy summary`;
+  document.getElementById("btnDownloadMD").innerHTML = `${icon("download", 15)} Download Markdown`;
+  document.getElementById("btnDownloadDoc").innerHTML = `${icon("fileWord", 15)} Download Word`;
+  document.getElementById("btnPrint").innerHTML = `${icon("printer", 15)} Print / Save PDF`;
+}
+
+// === ROUTER ===
+function navigate(route, params) {
+  state.route = route;
+  if (params && params.meetingId) state.currentMeetingId = params.meetingId;
+
+  const views = {
+    home: dom.viewHome,
+    meetings: dom.viewMeetings,
+    favorites: dom.viewFavorites,
+    search: dom.viewSearch,
+    ask: dom.viewAsk,
+    settings: dom.viewSettings,
+    meeting: dom.viewMeeting,
+  };
+  for (const [name, el] of Object.entries(views)) {
+    if (!el) continue;
+    if (name === route) {
+      el.style.display = name === "ask" || name === "meeting" ? "flex" : "";
+    } else {
+      el.style.display = "none";
+    }
+  }
+
+  dom.rightHome.style.display = route === "home" || route === "meetings" || route === "favorites" || route === "search" || route === "ask" ? "" : "none";
+  dom.rightMeeting.style.display = route === "meeting" ? "" : "none";
+  const rightSettings = document.getElementById("rightSettings");
+  if (rightSettings) rightSettings.style.display = route === "settings" ? "" : "none";
+
+  document.querySelectorAll(".nav-item").forEach((el) => el.classList.remove("active"));
+  const navEl = document.getElementById(`nav-${route === "meeting" ? "meetings" : route}`);
+  if (navEl) navEl.classList.add("active");
+
+  if (route === "home") {
+    setNavbar("Home", "Meeting overview");
+    renderHome();
+    renderRightHome();
+  } else if (route === "meetings") {
+    setNavbar("All meetings", "Browse everything you’ve captured");
+    renderAllMeetings();
+    renderRightHome();
+  } else if (route === "favorites") {
+    setNavbar("Favorites", "Starred meetings");
+    renderFavorites();
+    renderRightHome();
+  } else if (route === "search") {
+    setNavbar("Search", "Find meetings by title or content");
+    renderSearchView(params?.query || "");
+    renderRightHome();
+  } else if (route === "ask") {
+    setNavbar("Ask AI", "Questions across recent meetings");
+    renderAsk();
+    renderRightHome();
+    setTimeout(() => document.getElementById("globalChatInput")?.focus(), 40);
+  } else if (route === "settings") {
+    setNavbar("Settings", "Providers, templates, and data");
+    renderSettings();
+    renderRightSettings();
+  } else if (route === "meeting") {
+    setNavbar("Meeting", "Loading…");
+    loadMeeting(state.currentMeetingId, params?.tab || "chat", params?.searchQuery);
+  }
+}
+
+function setNavbar(title, sub) {
+  const t = document.getElementById("navbarTitle");
+  const s = document.getElementById("navbarSub");
+  if (t) t.textContent = title;
+  if (s) s.textContent = sub || "";
+}
+
+// === SIDEBAR ===
+async function renderSidebar(filter) {
+  const meetings = filter
+    ? await MeetingStore.listMeetings(filter)
+    : await MeetingStore.listMeetings();
+
+  const listEl = dom.recentMeetingsList;
+  if (meetings.length === 0) {
+    listEl.innerHTML = '<p class="empty-state-sm">No meetings yet</p>';
+  } else {
+    listEl.innerHTML = meetings
+      .map(
+        (m) => `
+        <div class="meeting-item ${m.id === state.currentMeetingId ? "active" : ""}" data-id="${m.id}">
+          <div class="meeting-item-avatar" style="background:${stringToColor(m.title)}">${m.title.charAt(0).toUpperCase()}</div>
+          <div class="meeting-item-info">
+            <div class="meeting-item-title">${escapeHtml(m.title)}</div>
+            <div class="meeting-item-meta">${formatDate(m.date)} · ${m.participantCount} people</div>
+          </div>
+        </div>`
+      )
+      .join("");
+
+    listEl.querySelectorAll(".meeting-item").forEach((el) => {
+      el.addEventListener("click", () => {
+        const id = el.dataset.id;
+        navigate("meeting", { meetingId: id, tab: "chat" });
+      });
+    });
+  }
+
+  const count = await MeetingStore.listMeetings();
+  const badge = document.getElementById("meetingCount");
+  if (badge) badge.textContent = String(count.length);
+  if (dom.meetingCount) dom.meetingCount = badge;
+  updateStorageIndicator(count.length);
+}
+
+function updateStorageIndicator(_meetingCount) {
+  const bar = document.querySelector(".storage-bar");
+  if (bar) bar.style.display = "none";
+  if (dom.storageText) {
+    dom.storageText.textContent = "Unlimited local storage";
+  }
+}
+
+function updateCollapseIcon() {
+  if (!dom.collapseSidebar) return;
+  dom.collapseSidebar.title = state.isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar";
+  dom.collapseSidebar.innerHTML = state.isSidebarCollapsed
+    ? icon("chevronRight", 15)
+    : icon("panelLeft", 15);
+}
+
+// === HOME ===
+function parseDurationMinutes(str) {
+  if (!str) return 0;
+  const m = String(str).match(/(\d+)/);
+  return m ? parseInt(m[1], 10) : 0;
+}
+
+async function renderProviderStatusCard() {
+  const settings = await getSettings();
+  const provider = settings.aiProvider || "gemini";
+  const def = PROVIDER_DEFS[provider];
+  const cfg = settings.providers?.[provider] || {};
+  const hasKey = provider === "custom" ? !!cfg.baseUrl : !!cfg.apiKey;
+  const el = document.getElementById("providerStatusCard");
+
+  if (!hasKey) {
+    el.innerHTML = `
+      <div class="provider-status-card warn">
+        ${icon("key", 20)}
+        <div class="psc-text"><strong>No AI provider configured yet.</strong> Add an API key to unlock chat, summaries, and action-item extraction.</div>
+        <a data-route-link="settings">Configure now →</a>
+      </div>`;
+  } else {
+    el.innerHTML = `
+      <div class="provider-status-card">
+        ${icon("cube", 20)}
+        <div class="psc-text">Using <strong>${def.label}</strong> · <strong>${escapeHtml(cfg.model || def.defaultModel)}</strong> for chat, summaries, and action items.</div>
+        <a data-route-link="settings">Change →</a>
+      </div>`;
+  }
+  el.querySelector("[data-route-link]")?.addEventListener("click", () => navigate("settings"));
+}
+
+async function renderAnalyticsStrip() {
+  const all = await MeetingStore.listMeetings();
+  const totalMinutes = all.reduce((sum, m) => sum + parseDurationMinutes(m.duration), 0);
+  const totalHours = (totalMinutes / 60).toFixed(1);
+  const avgMinutes = all.length ? Math.round(totalMinutes / all.length) : 0;
+  const uniqueSpeakers = new Set();
+  all.forEach((m) => { for (let i = 0; i < (m.participantCount || 0); i++) uniqueSpeakers.add(m.id + "-" + i); });
+
+  const cards = [
+    { value: all.length, label: "Meetings captured", iconName: "calendar" },
+    { value: totalHours + "h", label: "Total time recorded", iconName: "clock" },
+    { value: avgMinutes + " min", label: "Average meeting length", iconName: "barChart" },
+    { value: all.filter((m) => m.isFavorite).length, label: "Favorited", iconName: "star" },
+  ];
+
+  document.getElementById("analyticsStrip").innerHTML = cards
+    .map(
+      (c) => `
+      <div class="analytics-card">
+        <span class="a-value">${c.value}</span>
+        <div class="a-label">${icon(c.iconName, 13)} ${c.label}</div>
+      </div>`
+    )
+    .join("");
+}
+
+function getIstHour() {
+  try {
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Asia/Kolkata",
+      hour: "numeric",
+      hourCycle: "h23",
+    }).formatToParts(new Date());
+    return Number(parts.find((p) => p.type === "hour")?.value ?? 0);
+  } catch (_) {
+    // Fallback: UTC+5:30
+    return new Date(Date.now() + 5.5 * 60 * 60 * 1000).getUTCHours();
+  }
+}
+
+async function renderHome() {
+  const all = await MeetingStore.listMeetings();
+  const today = await MeetingStore.getTodaysMeetings();
+
+  const hour = getIstHour();
+  const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+  document.getElementById("homeGreeting").textContent = greeting;
+
+  await renderProviderStatusCard();
+  await renderAnalyticsStrip();
+
+  // Continue working
+  const lastResult = await new Promise((r) => chrome.storage.local.get(["lastMeetingId"], r));
+  const lastId = lastResult.lastMeetingId;
+  const continueSection = document.getElementById("continueSection");
+  const continueCard = document.getElementById("continueCard");
+
+  if (lastId) {
+    const meeting = await MeetingStore.getMeeting(lastId);
+    if (meeting) {
+      continueSection.style.display = "";
+      continueCard.innerHTML = `
+        <div class="continue-card" data-id="${lastId}">
+          <span class="icon-wrap" style="width:24px;height:24px;color:var(--brand)">${window.LucideIcons.chevronRight}</span>
+          <div style="flex:1">
+            <div style="font-weight:600;margin-bottom:4px">${escapeHtml(meeting.title || "Untitled")}</div>
+            <div style="font-size:12px;color:var(--text-muted)">${formatDate(meeting.date)} · ${meeting.duration || "N/A"}</div>
+          </div>
+          <span class="icon-wrap" style="width:20px;height:20px;color:var(--text-muted)">${window.LucideIcons.chevronRight}</span>
+        </div>`;
+      continueCard.querySelector(".continue-card").addEventListener("click", () => {
+        navigate("meeting", { meetingId: lastId, tab: "chat" });
+      });
+    } else {
+      continueSection.style.display = "none";
+    }
+  } else {
+    continueSection.style.display = "none";
+  }
+
+  // Today's meetings
+  const todayGrid = document.getElementById("todayMeetingsGrid");
+  if (today.length === 0) {
+    todayGrid.innerHTML = '<p class="empty-state">No meetings today</p>';
+  } else {
+    todayGrid.innerHTML = today.map(meetingCard).join("");
+    bindCardClicks(todayGrid);
+  }
+
+  // Recent meetings
+  const recentGrid = document.getElementById("recentMeetingsGrid");
+  const settings = await getSettings();
+  const recent = settings.hidePrivateFromHome === false
+    ? all
+    : all.filter((m) => !m.isPrivate);
+  if (recent.length === 0) {
+    recentGrid.innerHTML =
+      '<p class="empty-state">No meetings yet. Start a Google Meet or Zoom call to capture your first meeting.</p>';
+  } else {
+    recentGrid.innerHTML = recent.map(meetingCard).join("");
+    bindCardClicks(recentGrid);
+  }
+
+  await renderSidebar();
+}
+
+function platformIcon(platform) {
+  return platform === "zoom" ? icon("video", 12) : icon("meet", 12);
+}
+
+function meetingCard(m) {
+  const meeting = m.transcript
+    ? m
+    : {
+        title: m.title,
+        date: m.date,
+        duration: m.duration || "0 mins",
+        participantCount: m.participantCount || 0,
+        id: m.id,
+        tags: m.tags,
+        platform: m.platform,
+        isPrivate: m.isPrivate,
+      };
+  const preview = meeting.transcript
+    ? meeting.transcript.map((e) => e.text).join(" ")
+    : "";
+  const tags = meeting.tags || [];
+  return `
+    <div class="meeting-card" data-id="${meeting.id}">
+      <div class="meeting-card-title-row">
+        ${platformIcon(meeting.platform)}
+        <div class="meeting-card-title">${escapeHtml(meeting.title)}${meeting.isPrivate ? ` ${icon("shieldCheck", 12)}` : ""}</div>
+        <button type="button" class="meeting-card-menu-btn" data-card-menu="${meeting.id}" title="More actions" aria-label="More actions">${icon("moreVertical", 16)}</button>
+      </div>
+      <div class="meeting-card-meta">
+        <span>${icon("calendar", 12)} ${formatDate(meeting.date)}</span>
+        <span>${icon("clock", 12)} ${meeting.duration}</span>
+        <span>${icon("users", 12)} ${meeting.participantCount || 0} people</span>
+      </div>
+      ${preview ? `<div class="meeting-card-preview">${escapeHtml(preview.slice(0, 160))}${preview.length > 160 ? "…" : ""}</div>` : ""}
+      ${tags.length ? `<div class="meeting-card-tags">${tags.map((t) => `<span class="tag-chip">${icon("tag", 10)} ${escapeHtml(t)}</span>`).join("")}</div>` : ""}
+    </div>`;
+}
+
+function closeCardMenus() {
+  document.querySelectorAll(".meeting-card-menu").forEach((el) => el.remove());
+}
+
+function openMeetingCardMenu(anchorBtn, meetingId) {
+  closeCardMenus();
+  const menu = document.createElement("div");
+  menu.className = "meeting-card-menu";
+  menu.innerHTML = `
+    <button type="button" data-act="open">${icon("external", 14)} Open meeting</button>
+    <button type="button" data-act="ask">${icon("askAi", 14)} Ask AI about this</button>
+    <button type="button" data-act="transcript">${icon("fileText", 14)} Open transcript</button>
+    <button type="button" data-act="summary">${icon("wand", 14)} Open summary</button>
+    <button type="button" data-act="favorite">${icon("star", 14)} Toggle favorite</button>
+    <button type="button" data-act="pin">${icon("pin", 14)} Toggle pin</button>
+    <button type="button" data-act="copy">${icon("copy", 14)} Copy open actions</button>
+    <button type="button" data-act="delete" class="is-danger">${icon("trash", 14)} Delete</button>
+  `;
+  document.body.appendChild(menu);
+  const rect = anchorBtn.getBoundingClientRect();
+  const menuW = 210;
+  let left = rect.right - menuW;
+  let top = rect.bottom + 6;
+  if (left < 8) left = 8;
+  if (top + 280 > window.innerHeight) top = Math.max(8, rect.top - 280);
+  menu.style.left = `${left}px`;
+  menu.style.top = `${top}px`;
+
+  const onDoc = (e) => {
+    if (!menu.contains(e.target) && e.target !== anchorBtn) {
+      menu.remove();
+      document.removeEventListener("mousedown", onDoc, true);
+    }
+  };
+  document.addEventListener("mousedown", onDoc, true);
+
+  menu.querySelectorAll("button").forEach((btn) => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const act = btn.dataset.act;
+      menu.remove();
+      document.removeEventListener("mousedown", onDoc, true);
+      if (act === "open") {
+        navigate("meeting", { meetingId, tab: "chat" });
+        return;
+      }
+      if (act === "ask") {
+        await addMeetingsToAsk([meetingId], { animateId: meetingId });
+        navigate("ask");
+        showToast("Meeting added to Ask AI");
+        return;
+      }
+      if (act === "transcript") {
+        navigate("meeting", { meetingId, tab: "transcript" });
+        return;
+      }
+      if (act === "summary") {
+        navigate("meeting", { meetingId, tab: "summary" });
+        return;
+      }
+      if (act === "favorite") {
+        await MeetingStore.toggleFavorite(meetingId);
+        if (state.route === "home") renderHome();
+        if (state.route === "meetings") renderAllMeetings();
+        if (state.route === "favorites") renderFavorites();
+        showToast("Favorite updated");
+        return;
+      }
+      if (act === "pin") {
+        await MeetingStore.togglePin(meetingId);
+        renderRightHome();
+        showToast("Pin updated");
+        return;
+      }
+      if (act === "copy") {
+        const meeting = await MeetingStore.getMeeting(meetingId);
+        const lines = (meeting?.actionItems || [])
+          .filter((a) => !a.done)
+          .map((a) => `- ${a.owner ? a.owner + ": " : ""}${a.text || a.title || a}`);
+        await navigator.clipboard.writeText(lines.length ? lines.join("\n") : "No open action items.");
+        showToast("Actions copied");
+        return;
+      }
+      if (act === "delete") {
+        const settings = await getSettings();
+        if (settings.confirmBeforeDelete !== false) {
+          if (!(await showConfirm("Delete this meeting? This cannot be undone.", {
+            title: "Delete meeting",
+            confirmLabel: "Delete",
+            danger: true,
+          }))) return;
+        }
+        await MeetingStore.deleteMeeting(meetingId);
+        state.askSelectedIds = state.askSelectedIds.filter((id) => id !== meetingId);
+        state.askMeetingsCache.delete(meetingId);
+        if (state.currentMeetingId === meetingId) navigate("home");
+        else if (state.route === "home") renderHome();
+        else if (state.route === "meetings") renderAllMeetings();
+        else if (state.route === "favorites") renderFavorites();
+        else if (state.route === "ask") renderAsk();
+        showToast("Meeting deleted");
+      }
+    });
+  });
+}
+
+function bindCardClicks(container) {
+  container.querySelectorAll(".meeting-card").forEach((card) => {
+    card.addEventListener("click", (e) => {
+      if (e.target.closest("[data-card-menu]")) return;
+      navigate("meeting", { meetingId: card.dataset.id, tab: "chat" });
+    });
+  });
+  container.querySelectorAll("[data-card-menu]").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openMeetingCardMenu(btn, btn.dataset.cardMenu);
+    });
+  });
+}
+
+// === ALL MEETINGS ===
+let activeTagFilter = null;
+
+async function renderAllMeetings() {
+  const listEl = document.getElementById("allMeetingsList");
+  const all = await MeetingStore.listMeetings();
+  const allTags = await MeetingStore.getAllTags();
+
+  const filterEl = document.getElementById("allMeetingsTagFilter");
+  if (allTags.length === 0) {
+    filterEl.innerHTML = "";
+  } else {
+    filterEl.innerHTML = [
+      `<div class="tag-filter-pill ${!activeTagFilter ? "active" : ""}" data-tag="">All</div>`,
+      ...allTags.map((t) => `<div class="tag-filter-pill ${activeTagFilter === t ? "active" : ""}" data-tag="${escapeHtml(t)}">${icon("tag", 11)} ${escapeHtml(t)}</div>`),
+    ].join("");
+    filterEl.querySelectorAll(".tag-filter-pill").forEach((el) => {
+      el.addEventListener("click", () => {
+        activeTagFilter = el.dataset.tag || null;
+        renderAllMeetings();
+      });
+    });
+  }
+
+  const filtered = activeTagFilter ? all.filter((m) => (m.tags || []).includes(activeTagFilter)) : all;
+
+  if (filtered.length === 0) {
+    listEl.innerHTML = '<p class="empty-state">No meetings captured yet.</p>';
+    return;
+  }
+  listEl.innerHTML = `<div class="meeting-grid">${filtered.map(meetingCard).join("")}</div>`;
+  bindCardClicks(listEl.querySelector(".meeting-grid"));
+}
+
+// === FAVORITES ===
+async function renderFavorites() {
+  const grid = document.getElementById("favoritesGrid");
+  const favorites = await MeetingStore.getFavorites();
+  if (favorites.length === 0) {
+    grid.innerHTML = '<p class="empty-state">No favorites yet. Star a meeting to pin it here.</p>';
+    return;
+  }
+  grid.innerHTML = favorites.map(meetingCard).join("");
+  bindCardClicks(grid);
+}
+
+// === GLOBAL FULL-TEXT SEARCH ===
+async function renderSearchView(prefill) {
+  const input = document.getElementById("globalSearchInput");
+  input.value = prefill || "";
+  document.getElementById("globalSearchResults").innerHTML = "";
+  if (prefill) await performGlobalSearch(prefill);
+
+  input.oninput = debounce(() => performGlobalSearch(input.value.trim()), 250);
+}
+
+function debounce(fn, ms) {
+  let t;
+  return (...args) => {
+    clearTimeout(t);
+    t = setTimeout(() => fn(...args), ms);
+  };
+}
+
+function highlightMatch(text, query) {
+  const escaped = escapeHtml(text);
+  if (!query) return escaped;
+  const q = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return escaped.replace(new RegExp(`(${q})`, "ig"), "<mark>$1</mark>");
+}
+
+async function performGlobalSearch(query) {
+  const resultsEl = document.getElementById("globalSearchResults");
+  if (!query) {
+    resultsEl.innerHTML = '<p class="empty-state">Type to search across every meeting transcript you\'ve captured.</p>';
+    return;
+  }
+  const results = await MeetingStore.searchTranscripts(query);
+  if (results.length === 0) {
+    resultsEl.innerHTML = `<p class="empty-state">No matches for "${escapeHtml(query)}".</p>`;
+    return;
+  }
+  resultsEl.innerHTML = results
+    .map(
+      (r) => `
+      <div class="search-result-card" data-id="${r.meeting.id}">
+        <div class="search-result-title">${highlightMatch(r.meeting.title, query)}</div>
+        <div class="search-result-meta">${formatDate(r.meeting.date)} · ${r.matchCount} match${r.matchCount === 1 ? "" : "es"}</div>
+        ${r.matches.map((m) => `<div class="search-result-snippet"><strong>${escapeHtml(m.speaker)}:</strong> ${highlightMatch(m.text, query)}</div>`).join("")}
+      </div>`
+    )
+    .join("");
+
+  resultsEl.querySelectorAll(".search-result-card").forEach((el) => {
+    el.addEventListener("click", () => {
+      navigate("meeting", { meetingId: el.dataset.id, tab: "transcript", searchQuery: query });
+    });
+  });
+}
+
+// === ASK AI ACROSS SELECTED MEETINGS ===
+async function preloadAskMeeting(id) {
+  if (!id) return null;
+  if (state.askMeetingsCache.has(id)) return state.askMeetingsCache.get(id);
+  const meeting = await MeetingStore.getMeeting(id);
+  if (meeting) state.askMeetingsCache.set(id, meeting);
+  return meeting;
+}
+
+async function addMeetingsToAsk(ids, { animateId = null } = {}) {
+  const added = [];
+  for (const id of ids) {
+    if (!id || state.askSelectedIds.includes(id)) continue;
+    state.askSelectedIds.push(id);
+    added.push(id);
+    // Load transcript in the background so chat is ready when the user asks
+    preloadAskMeeting(id).catch(() => {});
+  }
+  if (added.length) {
+    state.askShowPrompts = false;
+    await renderAsk({ animateId: animateId || added[0] });
+  }
+  return added;
+}
+
+function removeMeetingFromAsk(id) {
+  state.askSelectedIds = state.askSelectedIds.filter((x) => x !== id);
+  state.askMeetingsCache.delete(id);
+  renderAsk();
+}
+
+async function openAskMeetingPicker() {
+  const meetings = await MeetingStore.listMeetings();
+  const existing = document.getElementById("askMeetingPicker");
+  if (existing) existing.remove();
+
+  const overlay = document.createElement("div");
+  overlay.id = "askMeetingPicker";
+  overlay.className = "app-modal-overlay";
+  const selected = new Set(state.askSelectedIds);
+
+  const paint = (q = "") => {
+    const query = q.toLowerCase().trim();
+    const list = meetings
+      .filter((m) => !query || (m.title || "").toLowerCase().includes(query))
+      .slice(0, 60);
+    const box = overlay.querySelector("#askPickList");
+    if (!list.length) {
+      box.innerHTML = '<p class="empty-state-sm">No meetings found</p>';
+      return;
+    }
+    box.innerHTML = list
+      .map(
+        (m) => `<label class="ask-pick-row">
+          <input type="checkbox" data-id="${m.id}" ${selected.has(m.id) ? "checked" : ""} />
+          <div>
+            <strong>${escapeHtml(m.title || "Untitled")}</strong>
+            <span>${formatDate(m.date)} · ${m.participantCount || 0} people</span>
+          </div>
+        </label>`
+      )
+      .join("");
+    box.querySelectorAll("input[data-id]").forEach((input) => {
+      input.addEventListener("change", () => {
+        if (input.checked) selected.add(input.dataset.id);
+        else selected.delete(input.dataset.id);
+      });
+    });
+  };
+
+  overlay.innerHTML = `
+    <div class="app-modal-card" role="dialog" aria-modal="true" style="max-width:460px">
+      <div class="app-modal-head">
+        <h3>Add meetings</h3>
+        <button type="button" class="app-modal-close" id="askPickClose">${icon("x", 16)}</button>
+      </div>
+      <input type="text" id="askPickSearch" class="select-block" placeholder="Search meetings…" autocomplete="off" />
+      <div id="askPickList" class="ask-pick-list"></div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px">
+        <button type="button" class="quick-btn secondary" id="askPickCancel">Cancel</button>
+        <button type="button" class="quick-btn" id="askPickSave">${icon("plus", 14)} Add selected</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  paint();
+
+  const close = () => overlay.remove();
+  overlay.querySelector("#askPickClose").addEventListener("click", close);
+  overlay.querySelector("#askPickCancel").addEventListener("click", close);
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+  overlay.querySelector("#askPickSearch").addEventListener("input", (e) => paint(e.target.value));
+  overlay.querySelector("#askPickSave").addEventListener("click", async () => {
+    const ids = [...selected];
+    close();
+    const newly = ids.filter((id) => !state.askSelectedIds.includes(id));
+    state.askSelectedIds = ids;
+    for (const id of newly) preloadAskMeeting(id).catch(() => {});
+    await renderAsk({ animateId: newly[0] || null });
+    if (newly.length) showToast(newly.length === 1 ? "Meeting added" : `${newly.length} meetings added`);
+  });
+  setTimeout(() => overlay.querySelector("#askPickSearch")?.focus(), 30);
+}
+
+function askSelectedChipsHtml(animateId) {
+  return state.askSelectedIds
+    .map((id) => {
+      const cached = state.askMeetingsCache.get(id);
+      const title = cached?.title || id;
+      const anim = id === animateId ? " is-entering" : "";
+      return `<span class="ask-meet-chip${anim}" data-id="${escapeAttr(id)}">
+        ${icon("meet", 12)}
+        <span class="ask-meet-chip-title">${escapeHtml(title)}</span>
+        <button type="button" class="ask-meet-chip-remove" data-remove="${escapeAttr(id)}" title="Remove" aria-label="Remove">${icon("x", 12)}</button>
+      </span>`;
+    })
+    .join("");
+}
+
+async function renderAsk({ animateId = null } = {}) {
+  const conv = await MeetingStore.getGlobalConversation();
+  const container = document.getElementById("globalChatContainer");
+  const aiAvatar = icon("askAi", 14);
+  const hasMeetings = state.askSelectedIds.length > 0;
+
+  // Ensure titles for chips (meta is enough if cache miss)
+  if (hasMeetings) {
+    const metas = await MeetingStore.listMeetings();
+    for (const id of state.askSelectedIds) {
+      if (!state.askMeetingsCache.has(id)) {
+        const meta = metas.find((m) => m.id === id);
+        if (meta) state.askMeetingsCache.set(id, meta);
+        preloadAskMeeting(id).catch(() => {});
+      }
+    }
+  }
+
+  const composerDisabled = !hasMeetings;
+  const showSuggestions = hasMeetings && (state.askShowPrompts || conv.length === 0);
+
+  let messagesBlock = "";
+  if (!hasMeetings) {
+    messagesBlock = `
+      <div class="chat-empty ask-gate">
+        <div class="ask-gate-icon">${icon("bot", 28)}</div>
+        <div class="ask-gate-title">Hello there! How can I help you today?</div>
+        <div class="ask-gate-sub">Select one or more meetings first — then ask about decisions, actions, and themes.</div>
+        <button type="button" class="quick-btn ask-add-cta" id="askAddMeetingsBtn">${icon("plus", 15)} Add Meetings to begin</button>
+      </div>`;
+  } else if (conv.length === 0) {
+    messagesBlock = `
+      <div class="chat-empty">
+        <div class="chat-empty-hero">
+          <div class="chat-empty-icon">${icon("askAi", 20)}</div>
+          <div>
+            <div class="chat-empty-title">Ready when you are</div>
+            <div class="chat-empty-subtitle">Ask about the ${state.askSelectedIds.length} selected meeting${state.askSelectedIds.length === 1 ? "" : "s"}. Transcripts load in the background.</div>
+          </div>
+        </div>
+        ${
+          showSuggestions
+            ? `<div class="chat-suggestions-label">Suggested prompts</div>
+               <div class="chat-suggestions">${suggestionButtonsHtml(GLOBAL_PROMPTS, icon)}</div>`
+            : ""
+        }
+      </div>`;
+  } else {
+    messagesBlock = conv
+      .map((m) =>
+        chatMessageHtml({
+          role: m.role,
+          contentHtml: m.role === "user" ? escapeHtml(m.content) : renderMarkdown(m.content),
+          avatarHtml: m.role === "user" ? "You" : aiAvatar,
+        })
+      )
+      .join("");
+  }
+
+  container.innerHTML = `
+    <div class="ask-selected-bar">
+      <div class="ask-selected-chips" id="askSelectedChips">
+        ${hasMeetings ? askSelectedChipsHtml(animateId) : `<span class="ask-selected-empty">No meetings selected</span>`}
+      </div>
+      <button type="button" class="quick-btn secondary ask-add-btn" id="askAddMeetingsBtn">${icon("plus", 14)} Add Meetings</button>
+    </div>
+    <div class="chat-messages">${messagesBlock}</div>
+    <div class="chat-input-area ${composerDisabled ? "is-disabled" : ""}">
+      ${
+        hasMeetings
+          ? `<div class="chat-quick-actions">${quickActionsHtml(GLOBAL_QUICK_ACTIONS, icon)}</div>`
+          : `<div class="ask-composer-hint">Select meetings first to start chatting</div>`
+      }
+      <div class="chat-input-row">
+        <textarea id="globalChatInput" placeholder="${
+          composerDisabled ? "Select meetings first to start chatting" : "Ask anything about the selected meetings…"
+        }" rows="1" ${composerDisabled ? "disabled" : ""}></textarea>
+        <button id="globalChatSendBtn" title="Send" ${composerDisabled ? "disabled" : ""}>${icon("send", 15)}</button>
+      </div>
+    </div>`;
+
+  if (conv.length && hasMeetings) {
+    const msgContainer = container.querySelector(".chat-messages");
+    msgContainer.scrollTop = msgContainer.scrollHeight;
+  }
+
+  container.querySelectorAll("#askAddMeetingsBtn").forEach((btn) => {
+    btn.addEventListener("click", () => openAskMeetingPicker());
+  });
+  container.querySelectorAll("[data-remove]").forEach((btn) => {
+    btn.addEventListener("click", () => removeMeetingFromAsk(btn.dataset.remove));
+  });
+  container.querySelectorAll(".chat-suggestion").forEach((btn) => {
+    btn.addEventListener("click", () => sendGlobalMessage(btn.dataset.prompt));
+  });
+  container.querySelectorAll(".qa-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const prompts = {
+        summary: "Summarize the selected meetings. Cover key topics, decisions, and next steps.",
+        actions: "What are all open action items in the selected meetings? Group by meeting and owner.",
+        insights: "What are the key insights and themes across the selected meetings?",
+        prompts: "__toggle_prompts__",
+      };
+      const val = prompts[btn.dataset.action] || btn.dataset.action;
+      if (val === "__toggle_prompts__") {
+        state.askShowPrompts = !state.askShowPrompts;
+        renderAsk();
+        return;
+      }
+      sendGlobalMessage(val);
+    });
+  });
+
+  const inputEl = document.getElementById("globalChatInput");
+  const sendBtn = document.getElementById("globalChatSendBtn");
+  if (sendBtn && inputEl) {
+    sendBtn.addEventListener("click", () => sendGlobalMessage(inputEl.value.trim()));
+    inputEl.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        sendGlobalMessage(inputEl.value.trim());
+      }
+    });
+    autoGrowTextarea(inputEl);
+  }
+}
+
+async function sendGlobalMessage(text) {
+  if (!text || state.isGenerating) return;
+  if (!state.askSelectedIds.length) {
+    showToast("Add meetings first");
+    openAskMeetingPicker();
+    return;
+  }
+  state.isGenerating = true;
+
+  await MeetingStore.addGlobalMessage({ role: "user", content: text });
+  const container = document.getElementById("globalChatContainer");
+  const messagesEl = container.querySelector(".chat-messages");
+  const wasEmpty = messagesEl.querySelector(".chat-empty");
+  if (wasEmpty) messagesEl.innerHTML = "";
+
+  const aiAvatar = icon("askAi", 14);
+  messagesEl.insertAdjacentHTML(
+    "beforeend",
+    chatMessageHtml({
+      role: "user",
+      contentHtml: escapeHtml(text),
+      avatarHtml: "You",
+    })
+  );
+  const loadingId = "gloading-" + Date.now();
+  messagesEl.insertAdjacentHTML(
+    "beforeend",
+    thinkingMessageHtml({ id: loadingId, avatarHtml: aiAvatar, scope: "global" })
+  );
+  const loadingEl = document.getElementById(loadingId);
+  const stopLoader = startPixelLoader(loadingEl?.querySelector(".pixel-loader"), { scope: "global" });
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+
+  const inputEl = document.getElementById("globalChatInput");
+  const sendBtn = document.getElementById("globalChatSendBtn");
+  if (inputEl) inputEl.value = "";
+  if (sendBtn) sendBtn.disabled = true;
+
+  try {
+    const meetings = [];
+    for (const id of state.askSelectedIds) {
+      const m = (await preloadAskMeeting(id)) || (await MeetingStore.getMeeting(id));
+      if (m) meetings.push(m);
+    }
+    if (!meetings.length) throw new Error("Could not load the selected meetings.");
+
+    const conv = await MeetingStore.getGlobalConversation();
+    const response = await AIService.askAcrossMeetings(conv, meetings);
+    stopLoader();
+    document.getElementById(loadingId)?.remove();
+    await MeetingStore.addGlobalMessage({ role: "assistant", content: response });
+    messagesEl.insertAdjacentHTML(
+      "beforeend",
+      chatMessageHtml({
+        role: "assistant",
+        contentHtml: renderMarkdown(response),
+        avatarHtml: aiAvatar,
+      })
+    );
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  } catch (err) {
+    stopLoader();
+    document.getElementById(loadingId)?.remove();
+    messagesEl.insertAdjacentHTML(
+      "beforeend",
+      chatMessageHtml({
+        role: "assistant",
+        contentHtml: escapeHtml(err.message),
+        avatarHtml: icon("x", 13),
+        isError: true,
+      })
+    );
+  }
+
+  state.isGenerating = false;
+  if (sendBtn) sendBtn.disabled = false;
+  if (inputEl) inputEl.focus();
+}
+
+async function maybeAskBackupConsent() {
+  if (await hasCompletedBackupConsent()) {
+    if ((await getBackupMode()) === "folder") {
+      try {
+        const { restored } = await restoreMeetingsFromFolder(MeetingStore);
+        if (restored > 0) {
+          showToast(`Restored ${restored} meeting${restored === 1 ? "" : "s"} from backup folder`);
+          await renderSidebar();
+        }
+      } catch (err) {
+        console.warn("[AI Note-Taker] Folder restore failed:", err);
+      }
+    }
+    return;
+  }
+
+  const body = document.createElement("div");
+  body.innerHTML = `
+    <p style="margin:0 0 10px">Keep your meetings safe even if you reinstall this extension.</p>
+    <p style="margin:0 0 10px">We can create/use a <strong>backup folder</strong> on your computer and save each meeting there (~10–50 KB each). You can delete meetings anytime from the app UI.</p>
+    <p style="margin:0;color:var(--text-muted);font-size:12.5px">If you skip this, meetings stay in local browser storage only (cleared if the extension is removed).</p>
+  `;
+
+  const choice = await showDialog({
+    title: "Save meetings to a folder?",
+    body,
+    actions: [
+      { id: "local", label: "Use local storage only", secondary: true },
+      { id: "folder", label: "Choose folder", primary: true },
+    ],
+  });
+
+  if (choice === "folder") {
+    if (!isFolderBackupSupported()) {
+      await setBackupMode("local");
+      showToast("Folder backup isn’t supported here — using local storage");
+      return;
+    }
+    try {
+      await pickBackupFolder();
+      const { written } = await syncAllMeetingsToFolder(MeetingStore);
+      showToast(written ? `Folder linked · ${written} meeting(s) backed up` : "Backup folder linked");
+    } catch (err) {
+      if (err?.name === "AbortError") {
+        await setBackupMode("local");
+        showToast("Using local storage only");
+      } else {
+        await setBackupMode("local");
+        showToast("Couldn’t access folder — using local storage");
+        console.warn(err);
+      }
+    }
+  } else {
+    await setBackupMode("local");
+    showToast("Using local storage only");
+  }
+}
+
+function autoGrowTextarea(el) {
+  if (!el) return;
+  const grow = () => {
+    el.style.height = "auto";
+    el.style.height = Math.min(el.scrollHeight, 130) + "px";
+  };
+  el.addEventListener("input", grow);
+  grow();
+}
+
+// === SETTINGS (providers, templates, data) ===
+function escapeAttr(s) {
+  return String(s || "").replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+}
+
+async function renderSettings() {
+  document.querySelectorAll("[data-settings-tab]").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.settingsTab === state.settingsTab);
+    btn.onclick = () => {
+      state.settingsTab = btn.dataset.settingsTab;
+      renderSettings();
+    };
+  });
+
+  const settings = await getSettings();
+  const content = document.getElementById("settingsContent");
+
+  if (state.settingsTab === "providers") {
+    content.innerHTML = renderProvidersPanelHtml(settings);
+    bindProvidersPanel(settings);
+  } else if (state.settingsTab === "templates") {
+    content.innerHTML = renderTemplatesPanelHtml();
+    bindTemplatesPanel(settings);
+  } else if (state.settingsTab === "preferences") {
+    content.innerHTML = renderPreferencesPanelHtml(settings);
+    bindPreferencesPanel(settings);
+  } else {
+    content.innerHTML = renderDataPanelHtml(settings);
+    bindDataPanel(settings);
+  }
+  enhanceSelects(content);
+}
+
+function modelFieldHtml(def, cfg) {
+  if (!def.models.length) {
+    return `<div class="form-group"><label>Model name</label><input type="text" data-field="customModel" value="${escapeAttr(cfg.model)}" placeholder="model name" /></div>`;
+  }
+  const known = def.models.map((m) => m.id);
+  const isCustom = cfg.model && !known.includes(cfg.model);
+  return `
+    <div class="form-group">
+      <label>Model</label>
+      <select data-field="modelSelect">
+        ${def.models.map((m) => `<option value="${m.id}" ${cfg.model === m.id ? "selected" : ""}>${m.label}</option>`).join("")}
+        <option value="__custom__" ${isCustom ? "selected" : ""}>Custom model name…</option>
+      </select>
+    </div>
+    <div class="form-group" data-custom-model-group style="${isCustom ? "" : "display:none"}">
+      <label>Custom model name</label>
+      <input type="text" data-field="customModel" value="${isCustom ? escapeAttr(cfg.model) : ""}" />
+    </div>`;
+}
+
+function renderProvidersPanelHtml(settings) {
+  const active = settings.aiProvider || "gemini";
+  const options = Object.values(PROVIDER_DEFS)
+    .map((d) => `<option value="${d.id}" ${d.id === active ? "selected" : ""}>${d.label}</option>`)
+    .join("");
+  return `
+    <div class="right-card" style="max-width:560px">
+      <div class="form-group">
+        <label>AI provider</label>
+        <select id="activeProviderSelect" class="select-block">${options}</select>
+      </div>
+      <p class="empty-state-sm" style="padding-top:0;margin-bottom:12px">Choose a provider first — its key, model, and options appear below.</p>
+      <div id="providerFieldsHost"></div>
+      <div style="display:flex;justify-content:flex-end;margin-top:14px;gap:8px">
+        <button class="quick-btn secondary" id="testActiveProviderBtn" type="button">${icon("refresh", 14)} Test connection</button>
+        <button class="quick-btn" id="saveProvidersBtn" type="button">${icon("check", 15)} Save provider</button>
+      </div>
+      <span class="test-status" id="providerTestStatus" style="display:block;margin-top:8px"></span>
+    </div>`;
+}
+
+function renderActiveProviderFields(settings, providerId) {
+  const def = PROVIDER_DEFS[providerId];
+  const cfg = settings.providers[providerId] || {};
+  const host = document.getElementById("providerFieldsHost");
+  if (!host || !def) return;
+  host.innerHTML = `
+    <div class="provider-fields" data-provider="${def.id}">
+      <div class="form-group">
+        <label>${def.keyLabel}${def.helpUrl ? ` · <a href="${def.helpUrl}" target="_blank" rel="noopener">get a key</a>` : ""}</label>
+        <div style="display:flex;gap:6px">
+          <input type="password" id="pfApiKey" class="select-block" placeholder="${def.keyPlaceholder}" value="${escapeAttr(cfg.apiKey)}" style="flex:1" />
+          <button type="button" class="quick-btn secondary" id="pfToggleKey" style="padding:8px 10px">${icon("eye", 14)}</button>
+        </div>
+      </div>
+      ${def.needsBaseUrl ? `
+      <div class="form-group">
+        <label>Base URL (OpenAI-compatible)</label>
+        <input type="text" id="pfBaseUrl" class="select-block" placeholder="https://your-endpoint.com/v1" value="${escapeAttr(cfg.baseUrl)}" />
+      </div>` : ""}
+      ${modelFieldHtml(def, cfg)}
+    </div>`;
+
+  document.getElementById("pfToggleKey")?.addEventListener("click", () => {
+    const input = document.getElementById("pfApiKey");
+    if (input) input.type = input.type === "password" ? "text" : "password";
+  });
+  const modelSelect = host.querySelector('[data-field="modelSelect"]');
+  if (modelSelect) {
+    modelSelect.addEventListener("change", () => {
+      const group = host.querySelector("[data-custom-model-group]");
+      if (group) group.style.display = modelSelect.value === "__custom__" ? "" : "none";
+    });
+  }
+  enhanceSelects(host);
+}
+
+function readActiveProviderForm(providerId) {
+  const def = PROVIDER_DEFS[providerId];
+  const apiKey = (document.getElementById("pfApiKey")?.value || "").trim();
+  const baseUrl = (document.getElementById("pfBaseUrl")?.value || "").trim();
+  const modelSelect = document.querySelector('#providerFieldsHost [data-field="modelSelect"]');
+  let model = "";
+  if (modelSelect) {
+    model = modelSelect.value === "__custom__"
+      ? (document.querySelector('#providerFieldsHost [data-field="customModel"]')?.value || "").trim()
+      : modelSelect.value;
+  } else {
+    model = (document.querySelector('#providerFieldsHost [data-field="customModel"]')?.value || "").trim();
+  }
+  if (!model) model = def.defaultModel;
+  return { apiKey, model, baseUrl };
+}
+
+function bindProvidersPanel(settings) {
+  const select = document.getElementById("activeProviderSelect");
+  renderActiveProviderFields(settings, select.value);
+  select.addEventListener("change", () => {
+    renderActiveProviderFields(settings, select.value);
+    document.getElementById("providerTestStatus").textContent = "";
+  });
+
+  document.getElementById("testActiveProviderBtn").addEventListener("click", async () => {
+    const providerId = select.value;
+    const cfg = readActiveProviderForm(providerId);
+    const statusEl = document.getElementById("providerTestStatus");
+    statusEl.className = "test-status";
+    statusEl.innerHTML = `<span class="spinner" style="width:12px;height:12px"></span> Testing…`;
+    try {
+      await testConnection({ provider: providerId, ...cfg });
+      statusEl.className = "test-status ok";
+      statusEl.textContent = "Connected successfully";
+    } catch (err) {
+      statusEl.className = "test-status err";
+      statusEl.textContent = "Failed: " + err.message.slice(0, 90);
+    }
+  });
+
+  document.getElementById("saveProvidersBtn").addEventListener("click", async () => {
+    const providerId = select.value;
+    const cfg = readActiveProviderForm(providerId);
+    if (providerId === "custom" && cfg.baseUrl) await ensureHostPermission(cfg.baseUrl);
+    settings.providers[providerId] = cfg;
+    settings.aiProvider = providerId;
+    await saveSettings(settings);
+    showToast("AI provider saved");
+    renderRightSettings();
+  });
+}
+
+async function renderRightSettings() {
+  const el = document.getElementById("rightSettings");
+  if (!el) return;
+  const settings = await getSettings();
+  const def = PROVIDER_DEFS[settings.aiProvider] || PROVIDER_DEFS.gemini;
+  const cfg = settings.providers?.[settings.aiProvider] || {};
+  el.innerHTML = `
+    <div class="right-card">
+      <h4 class="right-card-title">Active AI</h4>
+      <p class="empty-state-sm" style="padding-top:0">${def.label}<br><strong>${escapeHtml(cfg.model || def.defaultModel || "—")}</strong></p>
+    </div>
+    <div class="right-card">
+      <h4 class="right-card-title">Export tips</h4>
+      <p class="empty-state-sm" style="padding-top:0;line-height:1.5">After a meeting you’ll be asked whether to download a summary. Formats: Word, Markdown, TXT, RTF, HTML, and PDF.</p>
+    </div>
+    <div class="right-card">
+      <h4 class="right-card-title">Privacy</h4>
+      <p class="empty-state-sm" style="padding-top:0;line-height:1.5">Keys and transcripts stay in this browser via <code>chrome.storage</code>. With unlimitedStorage you can keep as many meetings as disk allows.</p>
+    </div>
+    <div class="right-card">
+      <h4 class="right-card-title">Zoom captions</h4>
+      <p class="empty-state-sm" style="padding-top:0;line-height:1.5">Join in Chrome → enable Automated captions → Live Transcript / Captions → Show.</p>
+    </div>`;
+}
+
+async function openQuickSearchModal() {
+  const existing = document.getElementById("collapsedSearchModal");
+  if (existing) existing.remove();
+  const meetings = await MeetingStore.listMeetings();
+  const overlay = document.createElement("div");
+  overlay.id = "collapsedSearchModal";
+  overlay.className = "app-modal-overlay";
+  overlay.innerHTML = `
+    <div class="app-modal-card" role="dialog" aria-modal="true">
+      <div class="app-modal-head">
+        <h3>Find a meeting</h3>
+        <button type="button" class="app-modal-close" id="csmClose">${icon("x", 16)}</button>
+      </div>
+      <input type="text" id="csmInput" class="select-block" placeholder="Search by title or transcript…" autocomplete="off" />
+      <div id="csmResults" class="csm-results"></div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  const render = async (q) => {
+    const query = (q || "").toLowerCase().trim();
+    const box = overlay.querySelector("#csmResults");
+    let list = meetings.filter((m) => !query || (m.title || "").toLowerCase().includes(query));
+
+    if (query.length >= 2) {
+      try {
+        const deep = await MeetingStore.searchTranscripts(query);
+        const seen = new Set(list.map((m) => m.id));
+        for (const hit of deep) {
+          if (!seen.has(hit.meeting.id)) {
+            seen.add(hit.meeting.id);
+            list.push(hit.meeting);
+          }
+        }
+      } catch (_) {}
+    }
+
+    list = list.slice(0, 40);
+    if (!list.length) {
+      box.innerHTML = '<p class="empty-state-sm">No matches</p>';
+      return;
+    }
+    box.innerHTML = list
+      .map(
+        (m) => `<button type="button" class="csm-item" data-id="${m.id}">
+          <strong>${escapeHtml(m.title || "Untitled")}${m.isPrivate ? " · private" : ""}</strong>
+          <span>${formatDate(m.date)} · ${m.participantCount || 0} people</span>
+        </button>`
+      )
+      .join("");
+    box.querySelectorAll(".csm-item").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        overlay.remove();
+        navigate("meeting", { meetingId: btn.dataset.id, tab: "summary" });
+      });
+    });
+  };
+
+  const close = () => overlay.remove();
+  overlay.querySelector("#csmClose").addEventListener("click", close);
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+  const input = overlay.querySelector("#csmInput");
+  let timer = null;
+  input.addEventListener("input", () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => render(input.value), 120);
+  });
+  render("");
+  setTimeout(() => input.focus(), 30);
+}
+
+const openCollapsedSearchModal = openQuickSearchModal;
+
+function renderTemplatesPanelHtml() {
+  return `
+    <div class="template-pill-list" id="templatePillList"></div>
+    <div class="right-card" style="max-width:720px">
+      <div class="form-group">
+        <label>Template name</label>
+        <input type="text" id="templateName" placeholder="Template name" />
+      </div>
+      <div class="form-group">
+        <label>Prompt</label>
+        <textarea id="templatePrompt" class="settings-textarea" spellcheck="false"></textarea>
+      </div>
+      <div class="settings-actions">
+        <button class="quick-btn" id="saveTemplateBtn">${icon("check", 14)} Save & set active</button>
+        <button class="quick-btn secondary" id="setActiveTemplateBtn">Set as active</button>
+        <button class="quick-btn secondary" id="newTemplateBtn">${icon("plus", 14)} New template</button>
+        <button class="quick-btn secondary" id="deleteTemplateBtn" style="color:var(--danger)">Delete</button>
+      </div>
+      <p class="empty-state-sm" id="templateHint"></p>
+    </div>`;
+}
+
+function bindTemplatesPanel(settings) {
+  function renderPills() {
+    const all = getAllTemplates(settings);
+    document.getElementById("templatePillList").innerHTML = all
+      .map((t) => `<div class="template-pill ${t.id === state.editingTemplateId ? "active" : ""}" data-id="${t.id}">${escapeHtml(t.name)}${t.builtIn ? " · built-in" : ""}</div>`)
+      .join("");
+    document.querySelectorAll(".template-pill").forEach((el) => {
+      el.addEventListener("click", () => loadTemplate(el.dataset.id));
+    });
+  }
+
+  function loadTemplate(id) {
+    const all = getAllTemplates(settings);
+    const t = all.find((x) => x.id === id) || { id: null, name: "", prompt: DEFAULT_PROMPT };
+    state.editingTemplateId = t.id;
+    document.getElementById("templateName").value = t.name;
+    document.getElementById("templatePrompt").value = t.prompt;
+    const saveBtn = document.getElementById("saveTemplateBtn");
+    const deleteBtn = document.getElementById("deleteTemplateBtn");
+    const hint = document.getElementById("templateHint");
+    if (t.builtIn) {
+      saveBtn.textContent = "Duplicate as new template";
+      deleteBtn.style.display = "none";
+      hint.textContent = "This is a built-in template. Saving creates your own editable copy.";
+    } else {
+      saveBtn.innerHTML = `${icon("check", 14)} Save & set active`;
+      deleteBtn.style.display = t.id ? "" : "none";
+      hint.textContent = "";
+    }
+    renderPills();
+  }
+
+  renderPills();
+  loadTemplate(settings.activeTemplateId || "default");
+
+  document.getElementById("newTemplateBtn").addEventListener("click", () => {
+    state.editingTemplateId = null;
+    document.getElementById("templateName").value = "";
+    document.getElementById("templatePrompt").value = "";
+    document.getElementById("saveTemplateBtn").innerHTML = `${icon("check", 14)} Save & set active`;
+    document.getElementById("deleteTemplateBtn").style.display = "none";
+    document.getElementById("templateHint").textContent = "";
+    renderPills();
+  });
+
+  document.getElementById("saveTemplateBtn").addEventListener("click", async () => {
+    const name = document.getElementById("templateName").value.trim() || "Untitled template";
+    const prompt = document.getElementById("templatePrompt").value;
+    const all = getAllTemplates(settings);
+    const existing = all.find((t) => t.id === state.editingTemplateId);
+
+    if (existing && !existing.builtIn) {
+      existing.name = name;
+      existing.prompt = prompt;
+      settings.activeTemplateId = existing.id;
+    } else {
+      const newId = "tpl-" + Date.now();
+      settings.promptTemplates.push({ id: newId, name, prompt });
+      settings.activeTemplateId = newId;
+      state.editingTemplateId = newId;
+    }
+    await saveSettings(settings);
+    showToast("Template saved and set active");
+    renderSettings();
+  });
+
+  document.getElementById("setActiveTemplateBtn").addEventListener("click", async () => {
+    if (!state.editingTemplateId) return;
+    settings.activeTemplateId = state.editingTemplateId;
+    await saveSettings(settings);
+    showToast("Active template updated");
+    renderPills();
+  });
+
+  document.getElementById("deleteTemplateBtn").addEventListener("click", async () => {
+    if (!state.editingTemplateId) return;
+    if (!(await showConfirm("Delete this template?", { title: "Delete template", confirmLabel: "Delete", danger: true }))) return;
+    settings.promptTemplates = settings.promptTemplates.filter((t) => t.id !== state.editingTemplateId);
+    if (settings.activeTemplateId === state.editingTemplateId) settings.activeTemplateId = "default";
+    await saveSettings(settings);
+    state.editingTemplateId = "default";
+    showToast("Template deleted");
+    renderSettings();
+  });
+}
+
+function renderDataPanelHtml(settings) {
+  const fmt = settings.docFormat || "doc";
+  return `
+    <div class="settings-grid">
+      <div class="right-card">
+        <h4 class="right-card-title">Default export format</h4>
+        <p class="empty-state-sm" style="padding-top:0;margin-bottom:10px">Used when you choose to download a summary after a meeting. You’ll always be asked first.</p>
+        <select id="docFormat" class="select-block">
+          <option value="doc" ${fmt === "doc" ? "selected" : ""}>Word (.doc)</option>
+          <option value="md" ${fmt === "md" ? "selected" : ""}>Markdown (.md)</option>
+          <option value="txt" ${fmt === "txt" ? "selected" : ""}>Plain text (.txt)</option>
+          <option value="rtf" ${fmt === "rtf" ? "selected" : ""}>Rich text (.rtf)</option>
+          <option value="html" ${fmt === "html" ? "selected" : ""}>HTML report (.html)</option>
+          <option value="pdf" ${fmt === "pdf" ? "selected" : ""}>PDF (.pdf)</option>
+        </select>
+      </div>
+      <div class="right-card">
+        <h4 class="right-card-title">Backup & restore</h4>
+        <p class="empty-state-sm">Download every meeting as a single JSON file. API keys are excluded from the export for safety.</p>
+        <button class="quick-btn secondary" id="exportAllBtn" style="margin-top:6px">${icon("download", 15)} Export JSON backup</button>
+      </div>
+      <div class="right-card" style="border-color:#edc7c7">
+        <h4 class="right-card-title" style="color:var(--danger)">Danger zone</h4>
+        <p class="empty-state-sm">Permanently erase every meeting and setting stored by this extension.</p>
+        <button class="quick-btn secondary" id="clearAllBtn" style="margin-top:6px;color:var(--danger);border-color:#edc7c7">${icon("trash", 15)} Erase all local data</button>
+      </div>
+      <div class="right-card">
+        <h4 class="right-card-title">Zoom & Meet support</h4>
+        <p class="empty-state-sm">Google Meet capture works via captions on meet.google.com. Zoom capture is experimental and only works when you "Join from your browser" (app.zoom.us/wc/...) — the Zoom desktop app cannot be automated by any Chrome extension.</p>
+      </div>
+    </div>`;
+}
+
+function renderPreferencesPanelHtml(settings) {
+  const row = (id, title, sub, checked) => `
+    <label class="pref-toggle">
+      <input type="checkbox" data-pref="${id}" ${checked ? "checked" : ""} />
+      <div><strong>${title}</strong><span>${sub}</span></div>
+    </label>`;
+  return `
+    <div class="settings-grid">
+      <div class="right-card">
+        <h4 class="right-card-title">Capture & launch</h4>
+        ${row("askBeforeCapture", "Ask before taking notes", "Prompt when you join Meet or Zoom.", settings.askBeforeCapture !== false)}
+        ${row("autoDownloadSummary", "Offer summary download at end", "Confirm scope and format before saving.", settings.autoDownloadSummary !== false)}
+        ${row("openLastMeetingOnLaunch", "Reopen last meeting on launch", "Jump back into the meeting you were viewing.", settings.openLastMeetingOnLaunch !== false)}
+        ${row("collapseSidebarOnStart", "Start with collapsed sidebar", "Open the notes library in icon-rail mode.", !!settings.collapseSidebarOnStart)}
+      </div>
+      <div class="right-card">
+        <h4 class="right-card-title">Privacy & organization</h4>
+        ${row("hidePrivateFromHome", "Hide private meetings on Home", "Private meetings stay out of Home recent lists.", settings.hidePrivateFromHome !== false)}
+        ${row("confirmBeforeDelete", "Confirm before deleting meetings", "Show a confirmation dialog before permanent delete.", settings.confirmBeforeDelete !== false)}
+        ${row("autoPinWithActions", "Auto-pin meetings with action items", "Pin a meeting when open action items are saved.", !!settings.autoPinWithActions)}
+      </div>
+      <div class="right-card">
+        <h4 class="right-card-title">Reading & copy</h4>
+        ${row("showTranscriptTimestamps", "Show transcript timestamps", "Display timestamps next to each caption line.", settings.showTranscriptTimestamps !== false)}
+        ${row("denseTranscript", "Compact transcript spacing", "Tighter line spacing for long meetings.", !!settings.denseTranscript)}
+        ${row("copyIncludesTimestamps", "Include timestamps when copying", "Keep [mm:ss] prefixes in copied transcripts.", settings.copyIncludesTimestamps !== false)}
+      </div>
+    </div>`;
+}
+
+function bindPreferencesPanel(settings) {
+  document.querySelectorAll("[data-pref]").forEach((input) => {
+    input.addEventListener("change", async () => {
+      const key = input.dataset.pref;
+      settings[key] = !!input.checked;
+      await saveSettings({ [key]: settings[key] });
+      showToast("Preference saved");
+      if (key === "collapseSidebarOnStart" && settings[key] && !state.isSidebarCollapsed) {
+        state.isSidebarCollapsed = true;
+        dom.leftSidebar.classList.add("collapsed");
+        updateCollapseIcon();
+      }
+      if (state.route === "meeting" && state.currentMeeting &&
+          (key === "showTranscriptTimestamps" || key === "denseTranscript")) {
+        await renderTranscript(state.currentMeeting);
+      }
+      if (state.route === "home") renderHome();
+    });
+  });
+}
+
+function bindDataPanel(settings) {
+  document.getElementById("docFormat").addEventListener("change", async (e) => {
+    settings.docFormat = e.target.value;
+    await saveSettings(settings);
+    showToast("Default export format updated");
+  });
+
+  document.getElementById("exportAllBtn").addEventListener("click", () => exportBackup());
+  document.getElementById("clearAllBtn").addEventListener("click", async () => {
+    if (!(await showConfirm("This will permanently delete every meeting, transcript, and setting. Continue?", {
+      title: "Erase all data",
+      confirmLabel: "Erase everything",
+      danger: true,
+    }))) return;
+    await new Promise((r) => chrome.storage.local.clear(r));
+    await new Promise((r) => chrome.storage.sync.clear(r));
+    showToast("All data erased");
+    setTimeout(() => location.reload(), 800);
+  });
+}
+
+// === RIGHT HOME ===
+async function renderRightHome() {
+  const favorites = await MeetingStore.getFavorites();
+  const pinned = await MeetingStore.getPinned();
+  const all = await MeetingStore.listMeetings();
+
+  const now = new Date();
+  const weekStart = new Date(now);
+  weekStart.setDate(now.getDate() - now.getDay());
+  const thisWeek = all.filter((m) => new Date(m.date) >= weekStart);
+
+  document.getElementById("statTotalMeetings").textContent = all.length;
+  document.getElementById("statThisWeek").textContent = thisWeek.length;
+  document.getElementById("statFavorites").textContent = favorites.length;
+
+  const pinnedList = document.getElementById("pinnedList");
+  if (pinned.length === 0) {
+    pinnedList.innerHTML = '<p class="empty-state-sm">No pinned meetings</p>';
+  } else {
+    pinnedList.innerHTML = pinned
+      .map(
+        (m) => `<div class="pinned-item" data-id="${m.id}">${icon("pin", 13)} ${escapeHtml(m.title)}</div>`
+      )
+      .join("");
+    pinnedList.querySelectorAll(".pinned-item").forEach((el) => {
+      el.addEventListener("click", () => {
+        navigate("meeting", { meetingId: el.dataset.id, tab: "chat" });
+      });
+    });
+  }
+}
+
+// === MEETING VIEW ===
+async function loadMeeting(id, tab, searchQuery) {
+  const meeting = await MeetingStore.getMeeting(id);
+  if (!meeting) {
+    navigate("home");
+    return;
+  }
+
+  state.currentMeetingId = id;
+  state.currentMeeting = meeting;
+  state.currentTab = tab;
+
+  dom.meetingViewTitle.textContent = meeting.title || "Untitled Meeting";
+  setNavbar(meeting.title || "Untitled Meeting", `${formatDate(meeting.date)} · ${meeting.duration || "N/A"}`);
+  dom.meetingViewMeta.innerHTML = `
+    <span class="meta-chip">${icon("calendar", 12)} ${formatDate(meeting.date)}</span>
+    <span class="meta-chip">${icon("clock", 12)} ${meeting.duration || "N/A"}</span>
+    <span class="meta-chip">${icon("users", 12)} ${(meeting.participants || []).length} participants</span>
+    <span class="meta-chip">${platformIcon(meeting.platform)} ${meeting.platform === "zoom" ? "Zoom" : "Google Meet"}</span>
+  `;
+
+  renderMeetingTags(meeting);
+  updateFavoriteBtn(meeting.isFavorite);
+  updatePinBtn(meeting.isPinned);
+
+  document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
+  const activeTab = document.querySelector(`.tab[data-tab="${tab}"]`);
+  if (activeTab) activeTab.classList.add("active");
+
+  document.querySelectorAll(".tab-content").forEach((tc) => (tc.style.display = "none"));
+  const targetContent = document.getElementById(`tab-${tab}`);
+  if (targetContent) targetContent.style.display = "";
+
+  renderChat(meeting);
+  await renderTranscript(meeting, searchQuery);
+  renderSummary(meeting);
+  renderActionItems(meeting);
+  renderHighlights(meeting);
+  await renderRightMeeting(meeting);
+  await renderSidebar();
+}
+
+function renderMeetingTags(meeting) {
+  const tags = meeting.tags || [];
+  dom.meetingTagsRow.innerHTML = `
+    ${tags.map((t) => `<span class="tag-chip removable" data-tag="${escapeAttr(t)}">${icon("tag", 10)} ${escapeHtml(t)} ×</span>`).join("")}
+    <button class="tag-add-btn" id="btnAddTag">+ Add tag</button>
+  `;
+  dom.meetingTagsRow.querySelectorAll(".tag-chip.removable").forEach((el) => {
+    el.addEventListener("click", async () => {
+      const newTags = tags.filter((t) => t !== el.dataset.tag);
+      await MeetingStore.setTags(state.currentMeetingId, newTags);
+      state.currentMeeting.tags = newTags;
+      renderMeetingTags(state.currentMeeting);
+      showToast("Tag removed");
+    });
+  });
+  document.getElementById("btnAddTag").addEventListener("click", () => {
+    const btn = document.getElementById("btnAddTag");
+    btn.outerHTML = `<input type="text" class="tag-add-input" id="newTagInput" placeholder="Tag name" />`;
+    const input = document.getElementById("newTagInput");
+    input.focus();
+    input.addEventListener("keydown", async (e) => {
+      if (e.key === "Enter" && input.value.trim()) {
+        const newTags = [...tags, input.value.trim()];
+        await MeetingStore.setTags(state.currentMeetingId, newTags);
+        state.currentMeeting.tags = newTags;
+        renderMeetingTags(state.currentMeeting);
+        showToast("Tag added");
+      } else if (e.key === "Escape") {
+        renderMeetingTags(state.currentMeeting);
+      }
+    });
+    input.addEventListener("blur", () => renderMeetingTags(state.currentMeeting));
+  });
+}
+
+function updateFavoriteBtn(isFav) {
+  dom.btnFavorite.classList.toggle("favorited", !!isFav);
+  dom.btnFavorite.title = isFav ? "Remove favorite" : "Mark as favorite";
+}
+
+function updatePinBtn(isPinned) {
+  dom.btnPin.classList.toggle("pinned", !!isPinned);
+  dom.btnPin.title = isPinned ? "Unpin meeting" : "Pin meeting";
+}
+
+// === CHAT ===
+async function renderChat(meeting) {
+  const conv = await MeetingStore.getAIConversation(meeting.id);
+  const aiAvatar = icon("brain", 14);
+
+  if (conv.length === 0) {
+    dom.chatContainer.innerHTML = `
+      <div class="chat-messages">
+        <div class="chat-empty">
+          <div class="chat-empty-hero">
+            <div class="chat-empty-icon">${icon("messageSquare", 20)}</div>
+            <div>
+              <div class="chat-empty-title">Ask about this meeting</div>
+              <div class="chat-empty-subtitle">AI has the full transcript — ask for summaries, decisions, owners, or a follow-up email.</div>
+            </div>
+          </div>
+          <div class="chat-suggestions-label">Suggested prompts</div>
+          <div class="chat-suggestions">
+            ${suggestionButtonsHtml(MEETING_PROMPTS, icon)}
+          </div>
+        </div>
+      </div>
+      <div class="chat-input-area">
+        <div class="chat-quick-actions">
+          ${quickActionsHtml(MEETING_QUICK_ACTIONS, icon)}
+        </div>
+        <div class="chat-input-row">
+          <textarea id="chatInput" placeholder="Ask anything about this meeting…" rows="1"></textarea>
+          <button id="chatSendBtn" title="Send">${icon("send", 15)}</button>
+        </div>
+      </div>`;
+  } else {
+    const messagesHtml = conv
+      .map((m) =>
+        chatMessageHtml({
+          role: m.role,
+          contentHtml: m.role === "user" ? escapeHtml(m.content) : renderMarkdown(m.content),
+          avatarHtml: m.role === "user" ? "You" : aiAvatar,
+        })
+      )
+      .join("");
+
+    dom.chatContainer.innerHTML = `
+      <div class="chat-messages">${messagesHtml}</div>
+      <div class="chat-input-area">
+        <div class="chat-quick-actions">
+          ${quickActionsHtml(MEETING_QUICK_ACTIONS, icon)}
+        </div>
+        <div class="chat-input-row">
+          <textarea id="chatInput" placeholder="Ask anything about this meeting…" rows="1"></textarea>
+          <button id="chatSendBtn" title="Send">${icon("send", 15)}</button>
+        </div>
+      </div>`;
+
+    const msgContainer = dom.chatContainer.querySelector(".chat-messages");
+    msgContainer.scrollTop = msgContainer.scrollHeight;
+  }
+
+  bindChatEvents(meeting);
+}
+
+function bindChatEvents(meeting) {
+  const inputEl = dom.chatContainer.querySelector("#chatInput");
+  const sendBtn = dom.chatContainer.querySelector("#chatSendBtn");
+
+  dom.chatContainer.querySelectorAll(".chat-suggestion").forEach((btn) => {
+    btn.addEventListener("click", () => sendMessage(meeting, btn.dataset.prompt));
+  });
+
+  dom.chatContainer.querySelectorAll(".qa-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const action = btn.dataset.action;
+      const prompts = {
+        summarize: "Summarize this meeting in detail. Include: key topics, decisions, action items, and next steps.",
+        tasks: "Extract all tasks and action items from this meeting. Format as a markdown table with columns: Task, Owner, Priority, Deadline.",
+        decisions: "List every decision made in this meeting. For each, explain what was decided and why.",
+        email: "Draft a professional follow-up email summarizing the key outcomes of this meeting. Include action items and next steps.",
+      };
+      const prompt = prompts[action] || action;
+      sendMessage(meeting, prompt);
+    });
+  });
+
+  sendBtn.addEventListener("click", () => sendMessage(meeting, inputEl.value.trim()));
+  inputEl.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage(meeting, inputEl.value.trim());
+    }
+  });
+  autoGrowTextarea(inputEl);
+}
+
+async function sendMessage(meeting, text) {
+  if (!text || state.isGenerating) return;
+  state.isGenerating = true;
+
+  await MeetingStore.addAIMessage(meeting.id, { role: "user", content: text });
+
+  const messagesEl = dom.chatContainer.querySelector(".chat-messages");
+  const wasEmpty = messagesEl.querySelector(".chat-empty");
+  if (wasEmpty) messagesEl.innerHTML = "";
+
+  const aiAvatar = icon("brain", 14);
+  messagesEl.insertAdjacentHTML(
+    "beforeend",
+    chatMessageHtml({
+      role: "user",
+      contentHtml: escapeHtml(text),
+      avatarHtml: "You",
+    })
+  );
+
+  const loadingId = "loading-" + Date.now();
+  messagesEl.insertAdjacentHTML(
+    "beforeend",
+    thinkingMessageHtml({ id: loadingId, avatarHtml: aiAvatar, scope: "meeting" })
+  );
+  const loadingEl = document.getElementById(loadingId);
+  const stopLoader = startPixelLoader(loadingEl?.querySelector(".pixel-loader"), { scope: "meeting" });
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+
+  const inputEl = dom.chatContainer.querySelector("#chatInput");
+  const sendBtn = dom.chatContainer.querySelector("#chatSendBtn");
+  if (inputEl) inputEl.value = "";
+  if (sendBtn) sendBtn.disabled = true;
+
+  try {
+    const updatedConv = await MeetingStore.getAIConversation(meeting.id);
+    const response = await AIService.chat(updatedConv, meeting);
+
+    stopLoader();
+    document.getElementById(loadingId)?.remove();
+
+    await MeetingStore.addAIMessage(meeting.id, { role: "assistant", content: response });
+    messagesEl.insertAdjacentHTML(
+      "beforeend",
+      chatMessageHtml({
+        role: "assistant",
+        contentHtml: renderMarkdown(response),
+        avatarHtml: aiAvatar,
+      })
+    );
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  } catch (err) {
+    stopLoader();
+    document.getElementById(loadingId)?.remove();
+    messagesEl.insertAdjacentHTML(
+      "beforeend",
+      chatMessageHtml({
+        role: "assistant",
+        contentHtml: escapeHtml(err.message),
+        avatarHtml: icon("x", 13),
+        isError: true,
+      })
+    );
+  }
+
+  state.isGenerating = false;
+  if (sendBtn) sendBtn.disabled = false;
+  if (inputEl) inputEl.focus();
+}
+
+// === TRANSCRIPT ===
+async function renderTranscript(meeting, prefillQuery) {
+  const transcript = meeting.transcript || [];
+  const speakers = [...new Set(transcript.map((e) => e.speaker))];
+  const bookmarkedIndexes = new Set((meeting.bookmarks || []).map((b) => b.entryIndex));
+  const settings = await getSettings();
+  const showTs = settings.showTranscriptTimestamps !== false;
+  const dense = !!settings.denseTranscript;
+
+  dom.transcriptContainer.innerHTML = `
+    <div class="transcript-toolbar">
+      <input type="text" class="transcript-search" id="transcriptSearch" placeholder="Search transcript..." value="${escapeAttr(prefillQuery || "")}">
+      <select class="speaker-filter" id="speakerFilter">
+        <option value="">All speakers</option>
+        ${speakers.map((s) => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join("")}
+      </select>
+    </div>
+    <div id="transcriptEntries">
+      ${transcript
+        .map(
+          (entry, i) => `
+        <div class="transcript-entry ${dense ? "is-dense" : ""} ${bookmarkedIndexes.has(i) ? "bookmarked" : ""}" data-speaker="${escapeHtml(entry.speaker)}" data-index="${i}">
+          <div class="transcript-speaker">
+            <span class="speaker-avatar" style="background:${stringToColor(entry.speaker)}">${entry.speaker.charAt(0).toUpperCase()}</span>
+            <span class="speaker-name" data-speaker-name="${escapeAttr(entry.speaker)}">${escapeHtml(entry.speaker)}</span>
+          </div>
+          <div class="transcript-body">
+            <div class="transcript-text">${escapeHtml(entry.text)}</div>
+          </div>
+          <div class="transcript-time">
+            <button class="transcript-bookmark-btn ${bookmarkedIndexes.has(i) ? "active" : ""}" data-bookmark-index="${i}" title="Highlight this moment">${icon("highlighter", 14)}</button>
+            <span class="${showTs ? "" : "ts-hidden"}">${escapeHtml(entry.timestamp || "")}</span>
+          </div>
+        </div>`
+        )
+        .join("")}
+    </div>`;
+
+  enhanceSelects(dom.transcriptContainer);
+
+  const searchEl = dom.transcriptContainer.querySelector("#transcriptSearch");
+  const filterEl = dom.transcriptContainer.querySelector("#speakerFilter");
+
+  function filterEntries() {
+    const q = (searchEl.value || "").toLowerCase();
+    const speaker = filterEl.value;
+    const entries = dom.transcriptContainer.querySelectorAll(".transcript-entry");
+    let firstMatch = null;
+    entries.forEach((entry) => {
+      const matchSpeaker = !speaker || entry.dataset.speaker === speaker;
+      const matchText = !q || (entry.textContent || "").toLowerCase().includes(q);
+      entry.style.display = matchSpeaker && matchText ? "" : "none";
+      const isHighlighted = q && matchText && q.length > 0;
+      entry.classList.toggle("highlight", isHighlighted);
+      if (isHighlighted && !firstMatch) firstMatch = entry;
+    });
+    if (firstMatch) firstMatch.scrollIntoView({ block: "center", behavior: "smooth" });
+  }
+
+  searchEl.addEventListener("input", filterEntries);
+  filterEl.addEventListener("change", filterEntries);
+  if (prefillQuery) filterEntries();
+
+  dom.transcriptContainer.querySelectorAll(".speaker-name").forEach((el) => {
+    el.addEventListener("click", () => openRenameSpeakerModal(meeting, el.dataset.speakerName));
+  });
+
+  dom.transcriptContainer.querySelectorAll(".transcript-bookmark-btn").forEach((btn) => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const idx = parseInt(btn.dataset.bookmarkIndex, 10);
+      const entry = transcript[idx];
+      if (btn.classList.contains("active")) {
+        const bm = (meeting.bookmarks || []).find((b) => b.entryIndex === idx);
+        if (bm) {
+          await MeetingStore.removeBookmark(meeting.id, bm.id);
+          meeting.bookmarks = (meeting.bookmarks || []).filter((b) => b.id !== bm.id);
+        }
+        showToast("Highlight removed");
+      } else {
+        const bookmarks = await MeetingStore.addBookmark(meeting.id, {
+          label: entry.text.slice(0, 70),
+          timestamp: entry.timestamp,
+          entryIndex: idx,
+        });
+        meeting.bookmarks = bookmarks;
+        showToast("Highlighted");
+      }
+      renderTranscript(meeting, searchEl.value);
+      renderHighlights(meeting);
+    });
+  });
+}
+
+function openRenameSpeakerModal(meeting, oldName) {
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal-box">
+      <h3>Rename speaker</h3>
+      <input type="text" id="renameSpeakerInput" value="${escapeAttr(oldName)}" />
+      <div class="modal-actions">
+        <button class="quick-btn secondary" id="cancelRenameBtn">Cancel</button>
+        <button class="quick-btn" id="confirmRenameBtn">Rename everywhere</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const input = overlay.querySelector("#renameSpeakerInput");
+  input.focus();
+  input.select();
+
+  const close = () => overlay.remove();
+  overlay.querySelector("#cancelRenameBtn").addEventListener("click", close);
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+
+  overlay.querySelector("#confirmRenameBtn").addEventListener("click", async () => {
+    const newName = input.value.trim();
+    if (!newName || newName === oldName) { close(); return; }
+    const updated = await MeetingStore.renameSpeaker(meeting.id, oldName, newName);
+    state.currentMeeting = updated;
+    close();
+    showToast(`Renamed "${oldName}" to "${newName}"`);
+    loadMeeting(meeting.id, "transcript");
+  });
+
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") overlay.querySelector("#confirmRenameBtn").click();
+    if (e.key === "Escape") close();
+  });
+}
+
+// === SUMMARY ===
+function renderSummary(meeting) {
+  dom.summaryContainer.innerHTML = `
+    <div class="summary-toolbar">
+      <select class="summary-type-select" id="summaryType">
+        <option value="executive">Executive summary</option>
+        <option value="engineering">Engineering summary</option>
+        <option value="decisions">Key decisions</option>
+        <option value="action-items">Action items</option>
+      </select>
+      <button class="generate-btn" id="generateSummaryBtn">${icon("wand", 13)} Generate</button>
+      <button class="generate-btn" id="regenerateSummaryBtn" style="display:none;background:var(--bg-tint);color:var(--text-secondary);border:1px solid var(--border)">Regenerate</button>
+    </div>
+    <div class="summary-content" id="summaryContent">
+      <p class="empty-state">Click "Generate" to create a summary for this meeting.</p>
+    </div>`;
+
+  enhanceSelects(dom.summaryContainer);
+
+  MeetingStore.getSummaries(meeting.id).then((summaries) => {
+    const type = document.getElementById("summaryType").value;
+    if (summaries[type]) {
+      document.getElementById("summaryContent").innerHTML = renderMarkdown(summaries[type].content);
+      document.getElementById("regenerateSummaryBtn").style.display = "";
+    }
+  });
+
+  document.getElementById("generateSummaryBtn").addEventListener("click", () => generateSummary(meeting));
+  document.getElementById("regenerateSummaryBtn").addEventListener("click", () => generateSummary(meeting));
+  document.getElementById("summaryType").addEventListener("change", async () => {
+    const type = document.getElementById("summaryType").value;
+    const summaries = await MeetingStore.getSummaries(meeting.id);
+    if (summaries[type]) {
+      document.getElementById("summaryContent").innerHTML = renderMarkdown(summaries[type].content);
+      document.getElementById("regenerateSummaryBtn").style.display = "";
+    } else {
+      document.getElementById("summaryContent").innerHTML =
+        '<p class="empty-state">Click "Generate" to create this summary.</p>';
+      document.getElementById("regenerateSummaryBtn").style.display = "none";
+    }
+  });
+}
+
+async function generateSummary(meeting) {
+  const type = document.getElementById("summaryType").value;
+  const btn = document.getElementById("generateSummaryBtn");
+  const regenBtn = document.getElementById("regenerateSummaryBtn");
+  btn.disabled = true;
+  btn.textContent = "Generating...";
+  if (regenBtn) regenBtn.style.display = "none";
+
+  try {
+    const content = await AIService.summarize(meeting.transcript, type, meeting);
+    await MeetingStore.saveSummary(meeting.id, type, content);
+    document.getElementById("summaryContent").innerHTML = renderMarkdown(content);
+    if (regenBtn) regenBtn.style.display = "";
+    showToast("Summary generated");
+  } catch (err) {
+    document.getElementById("summaryContent").innerHTML =
+      `<p style="color:var(--danger)">Error: ${escapeHtml(err.message)}</p>`;
+  }
+
+  btn.disabled = false;
+  btn.innerHTML = `${icon("wand", 13)} Generate`;
+}
+
+// === ACTION ITEMS ===
+function renderActionItems(meeting) {
+  const items = meeting.actionItems || [];
+  dom.actionItemsContainer.innerHTML = `
+    <div class="action-items-toolbar">
+      <h3>${items.length} action item${items.length === 1 ? "" : "s"}</h3>
+      <button class="generate-btn" id="rescanActionItemsBtn">${icon("refresh", 13)} Re-scan with AI</button>
+    </div>
+    <div id="actionItemsList">
+      ${items.length === 0 ? '<p class="empty-state">No action items yet. Click "Re-scan with AI" to extract them from the transcript.</p>' : ""}
+      ${items
+        .map(
+          (it) => `
+        <div class="action-item-row ${it.done ? "done" : ""}" data-id="${it.id}">
+          <input type="checkbox" ${it.done ? "checked" : ""} data-toggle="${it.id}" />
+          <div class="ai-body">
+            <div class="ai-text">${escapeHtml(it.text)}</div>
+            <div class="ai-meta">
+              ${it.owner ? `<span>${icon("users", 11)} ${escapeHtml(it.owner)}</span>` : ""}
+              ${it.deadline ? `<span>${icon("clock", 11)} ${escapeHtml(it.deadline)}</span>` : ""}
+            </div>
+          </div>
+          <button class="ai-delete" data-delete="${it.id}">${icon("x", 15)}</button>
+        </div>`
+        )
+        .join("")}
+    </div>`;
+
+  dom.actionItemsContainer.querySelectorAll("[data-toggle]").forEach((cb) => {
+    cb.addEventListener("change", async () => {
+      const updated = await MeetingStore.toggleActionItem(meeting.id, cb.dataset.toggle);
+      meeting.actionItems = updated;
+      renderActionItems(meeting);
+    });
+  });
+
+  dom.actionItemsContainer.querySelectorAll("[data-delete]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const remaining = (meeting.actionItems || []).filter((it) => it.id !== btn.dataset.delete);
+      await MeetingStore.setActionItems(meeting.id, remaining);
+      meeting.actionItems = remaining;
+      renderActionItems(meeting);
+    });
+  });
+
+  document.getElementById("rescanActionItemsBtn").addEventListener("click", async () => {
+    const btn = document.getElementById("rescanActionItemsBtn");
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spinner" style="width:13px;height:13px"></span> Scanning...`;
+    try {
+      const extracted = await AIService.extractActionItems(meeting.transcript, meeting);
+      const merged = [...(meeting.actionItems || []), ...extracted];
+      await MeetingStore.setActionItems(meeting.id, merged);
+      meeting.actionItems = merged;
+      const settings = await getSettings();
+      if (settings.autoPinWithActions && extracted.length && !meeting.isPinned) {
+        await MeetingStore.togglePin(meeting.id);
+        meeting.isPinned = true;
+        updatePinBtn(true);
+      }
+      renderActionItems(meeting);
+      showToast(`Found ${extracted.length} action item${extracted.length === 1 ? "" : "s"}`);
+    } catch (err) {
+      showToast("Error: " + err.message);
+      btn.disabled = false;
+      btn.innerHTML = `${icon("refresh", 13)} Re-scan with AI`;
+    }
+  });
+}
+
+// === HIGHLIGHTS ===
+function renderHighlights(meeting) {
+  const bookmarks = meeting.bookmarks || [];
+  if (bookmarks.length === 0) {
+    dom.highlightsContainer.innerHTML = `<p class="empty-state">No highlights yet. Click the ${icon("highlighter", 12)} icon next to any line in the Transcript tab to mark it as a highlight.</p>`;
+    return;
+  }
+  dom.highlightsContainer.innerHTML = bookmarks
+    .map(
+      (b) => `
+    <div class="highlight-row" data-entry-index="${b.entryIndex}" data-bookmark-id="${b.id}">
+      ${icon("highlighter", 18)}
+      <div class="h-body">
+        <div class="h-label">${escapeHtml(b.label)}</div>
+        <div class="h-time">${escapeHtml(b.timestamp || "")}</div>
+      </div>
+      <button class="h-delete" data-remove="${b.id}">${icon("x", 15)}</button>
+    </div>`
+    )
+    .join("");
+
+  dom.highlightsContainer.querySelectorAll(".highlight-row").forEach((row) => {
+    row.addEventListener("click", (e) => {
+      if (e.target.closest(".h-delete")) return;
+      const idx = parseInt(row.dataset.entryIndex, 10);
+      document.querySelector('.tab[data-tab="transcript"]').click();
+      setTimeout(() => {
+        const entry = dom.transcriptContainer.querySelector(`.transcript-entry[data-index="${idx}"]`);
+        if (entry) entry.scrollIntoView({ block: "center", behavior: "smooth" });
+      }, 60);
+    });
+  });
+
+  dom.highlightsContainer.querySelectorAll("[data-remove]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const updated = await MeetingStore.removeBookmark(meeting.id, btn.dataset.remove);
+      meeting.bookmarks = updated;
+      renderHighlights(meeting);
+      showToast("Highlight removed");
+    });
+  });
+}
+
+// === RIGHT MEETING PANEL ===
+function initialsFrom(name) {
+  const parts = String(name || "YN").trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return "YN";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function formatMeetingStamp(dateStr) {
+  if (!dateStr) return "Unknown";
+  try {
+    return new Date(dateStr).toLocaleString("en-IN", {
+      timeZone: "Asia/Kolkata",
+      weekday: "short",
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+  } catch (_) {
+    return formatDate(dateStr);
+  }
+}
+
+function speakerTalkStats(meeting) {
+  const counts = {};
+  for (const e of meeting.transcript || []) {
+    const name = (e.speaker || "Unknown").trim() || "Unknown";
+    const words = (e.text || "").trim().split(/\s+/).filter(Boolean).length;
+    counts[name] = (counts[name] || 0) + Math.max(words, 1);
+  }
+  const people = meeting.participants || [];
+  for (const p of people) {
+    const name = String(p || "").trim();
+    if (name && counts[name] == null) counts[name] = 0;
+  }
+  const total = Object.values(counts).reduce((a, b) => a + b, 0) || 1;
+  return Object.entries(counts)
+    .map(([name, words]) => ({
+      name,
+      words,
+      pct: Math.round((words / total) * 100),
+      color: stringToColor(name),
+    }))
+    .sort((a, b) => b.words - a.words);
+}
+
+function donutGradient(stats) {
+  if (!stats.length) return "conic-gradient(var(--border) 0 100%)";
+  let cursor = 0;
+  const parts = stats.map((s) => {
+    const start = cursor;
+    cursor += Math.max(s.pct, 1);
+    return `${s.color} ${start}% ${cursor}%`;
+  });
+  if (cursor < 100) parts.push(`var(--border) ${cursor}% 100%`);
+  return `conic-gradient(${parts.join(", ")})`;
+}
+
+async function shareMeetingBrief(meeting) {
+  if (meeting.isPrivate) {
+    const ok = await showConfirm(
+      "This meeting is marked private. Copy a shareable brief anyway?",
+      { title: "Private meeting", confirmLabel: "Copy brief" }
+    );
+    if (!ok) return;
+  }
+  const actions = (meeting.actionItems || []).filter((a) => !a.done);
+  const labels = (meeting.tags || []).join(", ") || "—";
+  const people = (meeting.participants || []).join(", ") || "—";
+  const brief = [
+    meeting.title || "Untitled meeting",
+    formatMeetingStamp(meeting.date) + (meeting.duration ? ` · ${meeting.duration}` : ""),
+    `Participants: ${people}`,
+    `Labels: ${labels}`,
+    meeting.recordingUrl ? `Recording: ${meeting.recordingUrl}` : null,
+    actions.length
+      ? "Open actions:\n" + actions.map((a) => `- ${a.owner ? a.owner + ": " : ""}${a.text || a.title || a}`).join("\n")
+      : "Open actions: none",
+  ]
+    .filter(Boolean)
+    .join("\n");
+  await navigator.clipboard.writeText(brief);
+  showToast("Meeting brief copied");
+}
+
+async function duplicateMeeting(meeting) {
+  const copy = {
+    ...meeting,
+    id: undefined,
+    title: `${meeting.title || "Untitled"} (copy)`,
+    date: new Date().toISOString(),
+    isPinned: false,
+    status: "completed",
+  };
+  delete copy.id;
+  const id = await MeetingStore.saveMeeting(copy);
+  navigate("meeting", { meetingId: id, tab: "summary" });
+  showToast("Meeting duplicated");
+}
+
+async function renderRightMeeting(meeting) {
+  const detail = document.getElementById("meetingDetailCard");
+  const participantsCard = document.getElementById("meetingParticipantsCard");
+  if (!detail || !participantsCard) return;
+
+  const ownerName = (meeting.participants && meeting.participants[0]) || "you";
+  const tags = meeting.tags || [];
+  const spaces = await MeetingStore.listSpaces();
+  const spaceIds = meeting.spaceIds || [];
+  const spaceNames = spaces.filter((s) => spaceIds.includes(s.id)).map((s) => s.name);
+
+  detail.innerHTML = `
+    <div class="m-detail-card">
+      <div class="m-detail-head">
+        <div class="m-avatar" style="background:${stringToColor(ownerName)}">${escapeHtml(initialsFrom(ownerName))}</div>
+        <div class="m-detail-meta">
+          <strong>Recorded by ${escapeHtml(ownerName === "you" ? "you" : ownerName)}</strong>
+          <span>${escapeHtml(formatMeetingStamp(meeting.date))}${meeting.duration ? ` · ${escapeHtml(meeting.duration)}` : ""}</span>
+        </div>
+      </div>
+      <div class="m-label-row">
+        ${meeting.isPrivate ? `<span class="m-label-pill is-private">${icon("shieldCheck", 11)} Private</span>` : ""}
+        ${tags.map((t) => `<span class="m-label-pill is-tag">${icon("tag", 10)} ${escapeHtml(t)}</span>`).join("")}
+        ${spaceNames.map((n) => `<span class="m-label-pill is-tag">${icon("layoutGrid", 10)} ${escapeHtml(n)}</span>`).join("")}
+        ${!meeting.isPrivate && !tags.length && !spaceNames.length ? `<span class="m-label-pill is-tag">No labels yet</span>` : ""}
+      </div>
+      <div class="m-action-list">
+        <button type="button" class="m-action-btn ${meeting.isPrivate ? "is-on" : ""}" data-m-action="private">
+          ${icon("shieldCheck", 15)} ${meeting.isPrivate ? "Private meeting" : "Mark as private"}
+          <span class="m-action-hint">${meeting.isPrivate ? "On" : "Off"}</span>
+        </button>
+        <button type="button" class="m-action-btn" data-m-action="share">${icon("share", 15)} Share this meeting</button>
+        <button type="button" class="m-action-btn" data-m-action="recording">
+          ${icon(meeting.recordingUrl ? "link" : "plus", 15)}
+          ${meeting.recordingUrl ? "Edit recording link" : "Link recording"}
+          ${meeting.recordingUrl ? `<span class="m-action-hint">Linked</span>` : ""}
+        </button>
+        <button type="button" class="m-action-btn" data-m-action="label">${icon("tag", 15)} Add label</button>
+        <button type="button" class="m-action-btn" data-m-action="space">${icon("layoutGrid", 15)} Add to space</button>
+        <button type="button" class="m-action-btn" data-m-action="duplicate">${icon("duplicate", 15)} Duplicate meeting</button>
+        <button type="button" class="m-action-btn" data-m-action="favorite">
+          ${icon("star", 15)} ${meeting.isFavorite ? "Unfavorite" : "Add to favorites"}
+        </button>
+        <button type="button" class="m-action-btn" data-m-action="pin">
+          ${icon("pin", 15)} ${meeting.isPinned ? "Unpin" : "Pin meeting"}
+        </button>
+      </div>
+    </div>`;
+
+  const stats = speakerTalkStats(meeting);
+  const open = participantsCard.dataset.open !== "0";
+  participantsCard.innerHTML = `
+    <div class="m-participants-card">
+      <div class="m-part-head" id="mPartToggle">
+        <h4>Participants</h4>
+        <span class="m-part-count">${stats.length}</span>
+        ${icon("chevronDown", 14)}
+      </div>
+      <div class="m-part-body ${open ? "" : "is-collapsed"}" id="mPartBody">
+        <div class="m-donut-wrap">
+          <div class="m-donut" style="background:${donutGradient(stats)}">
+            <div class="m-donut-center">${escapeHtml(meeting.duration || "—")}<small>talk share</small></div>
+          </div>
+        </div>
+        ${
+          stats.length
+            ? stats
+                .map(
+                  (s) => `<div class="m-speaker-row" data-speaker="${escapeAttr(s.name)}" title="Double-click to rename">
+                    <span class="m-speaker-dot" style="background:${s.color}"></span>
+                    <div class="m-speaker-main">
+                      <div class="m-speaker-name">${escapeHtml(s.name)}</div>
+                      <div class="m-speaker-bar"><i style="width:${Math.max(s.pct, 2)}%;background:${s.color}"></i></div>
+                    </div>
+                    <span class="m-speaker-pct">${s.pct}%</span>
+                  </div>`
+                )
+                .join("")
+            : `<p class="empty-state-sm">No speakers detected yet.</p>`
+        }
+      </div>
+    </div>`;
+
+  participantsCard.dataset.open = open ? "1" : "0";
+  document.getElementById("mPartToggle")?.addEventListener("click", () => {
+    const body = document.getElementById("mPartBody");
+    const collapsed = body?.classList.toggle("is-collapsed");
+    participantsCard.dataset.open = collapsed ? "0" : "1";
+  });
+
+  participantsCard.querySelectorAll(".m-speaker-row").forEach((row) => {
+    row.addEventListener("dblclick", async () => {
+      const oldName = row.dataset.speaker;
+      const next = await showPrompt("Rename this speaker everywhere in the transcript.", {
+        title: "Rename speaker",
+        defaultValue: oldName,
+        placeholder: "Display name",
+        okLabel: "Rename",
+      });
+      if (next == null) return;
+      const name = next.trim();
+      if (!name || name === oldName) return;
+      const updated = await MeetingStore.renameSpeaker(meeting.id, oldName, name);
+      state.currentMeeting = updated;
+      await loadMeeting(meeting.id, state.currentTab);
+      showToast("Speaker renamed");
+    });
+  });
+
+  detail.querySelectorAll("[data-m-action]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const action = btn.dataset.mAction;
+      if (action === "private") {
+        const on = await MeetingStore.togglePrivate(meeting.id);
+        state.currentMeeting.isPrivate = on;
+        showToast(on ? "Marked private" : "No longer private");
+        renderRightMeeting(state.currentMeeting);
+        return;
+      }
+      if (action === "share") {
+        await shareMeetingBrief(state.currentMeeting);
+        return;
+      }
+      if (action === "recording") {
+        const url = await showPrompt("Paste a Meet/Zoom/Drive recording URL.", {
+          title: "Link recording",
+          defaultValue: meeting.recordingUrl || "",
+          placeholder: "https://…",
+          inputType: "url",
+          okLabel: "Save link",
+        });
+        if (url == null) return;
+        await MeetingStore.setRecordingUrl(meeting.id, url.trim());
+        state.currentMeeting.recordingUrl = url.trim();
+        showToast(url.trim() ? "Recording linked" : "Recording link cleared");
+        renderRightMeeting(state.currentMeeting);
+        return;
+      }
+      if (action === "label") {
+        const label = await showPrompt("Add a label to organize this meeting.", {
+          title: "Add label",
+          placeholder: "e.g. Long meeting, Hiring, Q3",
+          okLabel: "Add",
+        });
+        if (label == null || !label.trim()) return;
+        const newTags = [...new Set([...(meeting.tags || []), label.trim()])];
+        await MeetingStore.setTags(meeting.id, newTags);
+        state.currentMeeting.tags = newTags;
+        renderMeetingTags(state.currentMeeting);
+        renderRightMeeting(state.currentMeeting);
+        showToast("Label added");
+        return;
+      }
+      if (action === "space") {
+        await openSpacePicker(meeting);
+        return;
+      }
+      if (action === "duplicate") {
+        await duplicateMeeting(meeting);
+        return;
+      }
+      if (action === "favorite") {
+        const on = await MeetingStore.toggleFavorite(meeting.id);
+        state.currentMeeting.isFavorite = on;
+        updateFavoriteBtn(on);
+        renderRightMeeting(state.currentMeeting);
+        showToast(on ? "Added to favorites" : "Removed from favorites");
+        return;
+      }
+      if (action === "pin") {
+        const on = await MeetingStore.togglePin(meeting.id);
+        state.currentMeeting.isPinned = on;
+        updatePinBtn(on);
+        renderRightMeeting(state.currentMeeting);
+        renderRightHome();
+        showToast(on ? "Pinned" : "Unpinned");
+      }
+    });
+  });
+
+  const settings = await getSettings();
+  const withTs = settings.copyIncludesTimestamps !== false;
+
+  document.getElementById("btnCopyTranscript").onclick = () => {
+    const text = (meeting.transcript || [])
+      .map((e) => (withTs && e.timestamp ? `[${e.timestamp}] ${e.speaker}: ${e.text}` : `${e.speaker}: ${e.text}`))
+      .join("\n");
+    navigator.clipboard.writeText(text).then(() => showToast("Transcript copied"));
+  };
+
+  document.getElementById("btnCopySummary").onclick = async () => {
+    const summaries = await MeetingStore.getSummaries(meeting.id);
+    const type = document.getElementById("summaryType")?.value || "executive";
+    const summary = summaries[type];
+    if (!summary) { showToast("Generate a summary first"); return; }
+    navigator.clipboard.writeText(summary.content).then(() => showToast("Summary copied"));
+  };
+
+  document.getElementById("btnDownloadMD").onclick = () => {
+    const text = (meeting.transcript || [])
+      .map((e) => (withTs && e.timestamp ? `[${e.timestamp}] ${e.speaker}: ${e.text}` : `${e.speaker}: ${e.text}`))
+      .join("\n");
+    const blob = new Blob([`# ${meeting.title}\n\n${text}`], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    chrome.downloads.download({ url, filename: `${meeting.title || "meeting"}.md`, saveAs: true });
+  };
+
+  document.getElementById("btnDownloadDoc").onclick = () => {
+    const text = (meeting.transcript || [])
+      .map((e) => (withTs && e.timestamp ? `[${e.timestamp}] ${e.speaker}: ${e.text}` : `${e.speaker}: ${e.text}`))
+      .join("\n");
+    const html = `<html><body><h1>${meeting.title}</h1><pre>${text}</pre></body></html>`;
+    const blob = new Blob(["\ufeff" + html], { type: "application/msword" });
+    const url = URL.createObjectURL(blob);
+    chrome.downloads.download({
+      url,
+      filename: `${meeting.title || "meeting"}.doc`,
+      saveAs: true,
+    });
+  };
+
+  document.getElementById("btnPrint").onclick = () => {
+    const win = window.open("", "_blank");
+    const text = (meeting.transcript || []).map((e) => `<p><strong>${escapeHtml(e.speaker)}</strong> <span style="color:#888">${e.timestamp || ""}</span><br>${escapeHtml(e.text)}</p>`).join("");
+    win.document.write(`<html><head><title>${escapeHtml(meeting.title)}</title></head><body style="font-family:sans-serif;max-width:720px;margin:40px auto">
+      <h1>${escapeHtml(meeting.title)}</h1><p style="color:#888">${formatDate(meeting.date)} · ${meeting.duration || ""}</p><hr>${text}</body></html>`);
+    win.document.close();
+    win.focus();
+    win.print();
+  };
+}
+
+async function openSpacePicker(meeting) {
+  let spaces = await MeetingStore.listSpaces();
+  const existing = document.getElementById("spacePickerModal");
+  if (existing) existing.remove();
+  const overlay = document.createElement("div");
+  overlay.id = "spacePickerModal";
+  overlay.className = "app-modal-overlay";
+  const selected = new Set(meeting.spaceIds || []);
+
+  const paint = () => {
+    overlay.querySelector("#spacePickerList").innerHTML = spaces.length
+      ? spaces
+          .map(
+            (s) => `<label class="pref-toggle" style="padding:8px 0">
+              <input type="checkbox" data-space-id="${s.id}" ${selected.has(s.id) ? "checked" : ""} />
+              <div><strong>${escapeHtml(s.name)}</strong></div>
+            </label>`
+          )
+          .join("")
+      : `<p class="empty-state-sm">No spaces yet. Create one below.</p>`;
+    overlay.querySelectorAll("[data-space-id]").forEach((input) => {
+      input.addEventListener("change", () => {
+        if (input.checked) selected.add(input.dataset.spaceId);
+        else selected.delete(input.dataset.spaceId);
+      });
+    });
+  };
+
+  overlay.innerHTML = `
+    <div class="app-modal-card" role="dialog" aria-modal="true" style="max-width:420px">
+      <div class="app-modal-head">
+        <h3>Add to space</h3>
+        <button type="button" class="app-modal-close" id="spaceClose">${icon("x", 16)}</button>
+      </div>
+      <div id="spacePickerList"></div>
+      <div style="display:flex;gap:8px;margin-top:12px">
+        <input type="text" id="newSpaceName" class="select-block" placeholder="New space name" style="flex:1" />
+        <button type="button" class="quick-btn secondary" id="createSpaceBtn">${icon("plus", 14)} Create</button>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px">
+        <button type="button" class="quick-btn secondary" id="spaceCancel">Cancel</button>
+        <button type="button" class="quick-btn" id="spaceSave">Save</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  paint();
+
+  const close = () => overlay.remove();
+  overlay.querySelector("#spaceClose").addEventListener("click", close);
+  overlay.querySelector("#spaceCancel").addEventListener("click", close);
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+
+  overlay.querySelector("#createSpaceBtn").addEventListener("click", async () => {
+    const name = overlay.querySelector("#newSpaceName").value.trim();
+    if (!name) return;
+    const space = await MeetingStore.createSpace(name);
+    spaces = await MeetingStore.listSpaces();
+    selected.add(space.id);
+    overlay.querySelector("#newSpaceName").value = "";
+    paint();
+    showToast("Space created");
+  });
+
+  overlay.querySelector("#spaceSave").addEventListener("click", async () => {
+    await MeetingStore.setMeetingSpaces(meeting.id, [...selected]);
+    state.currentMeeting.spaceIds = [...selected];
+    close();
+    renderRightMeeting(state.currentMeeting);
+    showToast("Spaces updated");
+  });
+}
+
+// === EVENT HANDLERS ===
+function setupEvents() {
+  dom.collapseSidebar.addEventListener("click", () => {
+    state.isSidebarCollapsed = !state.isSidebarCollapsed;
+    dom.leftSidebar.classList.toggle("collapsed", state.isSidebarCollapsed);
+    updateCollapseIcon();
+  });
+
+  // Collapsed sidebar: tapping the search icon opens a quick-find modal.
+  document.getElementById("searchIcon")?.addEventListener("click", (e) => {
+    if (!state.isSidebarCollapsed) return;
+    e.preventDefault();
+    e.stopPropagation();
+    openCollapsedSearchModal();
+  });
+  document.querySelector(".sidebar-search-inner")?.addEventListener("click", (e) => {
+    if (!state.isSidebarCollapsed) return;
+    if (e.target.closest("#meetingSearch")) return;
+    openCollapsedSearchModal();
+  });
+
+  document.querySelectorAll(".nav-item[data-route]").forEach((el) => {
+    el.addEventListener("click", () => navigate(el.dataset.route));
+  });
+
+  dom.backToHome.addEventListener("click", () => navigate("home"));
+
+  dom.btnFavorite.addEventListener("click", async () => {
+    const isFav = await MeetingStore.toggleFavorite(state.currentMeetingId);
+    state.currentMeeting.isFavorite = isFav;
+    updateFavoriteBtn(isFav);
+    showToast(isFav ? "Added to favorites" : "Removed from favorites");
+    renderRightHome();
+    renderSidebar();
+  });
+
+  dom.btnPin.addEventListener("click", async () => {
+    const isPinned = await MeetingStore.togglePin(state.currentMeetingId);
+    state.currentMeeting.isPinned = isPinned;
+    updatePinBtn(isPinned);
+    showToast(isPinned ? "Meeting pinned" : "Meeting unpinned");
+    renderRightHome();
+    renderSidebar();
+  });
+
+  dom.btnDeleteMeeting.addEventListener("click", async () => {
+    const settings = await getSettings();
+    if (settings.confirmBeforeDelete !== false) {
+      if (!(await showConfirm("Delete this meeting? This cannot be undone.", {
+        title: "Delete meeting",
+        confirmLabel: "Delete",
+        danger: true,
+      }))) return;
+    }
+    await MeetingStore.deleteMeeting(state.currentMeetingId);
+    navigate("home");
+    showToast("Meeting deleted");
+  });
+
+  dom.btnEditTitle.addEventListener("click", () => {
+    const titleEl = dom.meetingViewTitle;
+    titleEl.contentEditable = "true";
+    titleEl.focus();
+    document.execCommand("selectAll", false, null);
+
+    const commit = async () => {
+      titleEl.contentEditable = "false";
+      const newTitle = titleEl.textContent.trim() || "Untitled Meeting";
+      titleEl.textContent = newTitle;
+      if (newTitle !== state.currentMeeting.title) {
+        await MeetingStore.updateMeetingMeta(state.currentMeetingId, { title: newTitle });
+        state.currentMeeting.title = newTitle;
+        setNavbar(newTitle, document.getElementById("navbarSub")?.textContent || "");
+        showToast("Meeting renamed");
+        renderSidebar();
+      }
+    };
+    titleEl.addEventListener("blur", commit, { once: true });
+    titleEl.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); titleEl.blur(); }
+    }, { once: true });
+  });
+
+  document.querySelectorAll(".tab[data-tab]").forEach((tab) => {
+    tab.addEventListener("click", () => {
+      const tabName = tab.dataset.tab;
+      state.currentTab = tabName;
+      document.querySelectorAll(".tab[data-tab]").forEach((t) => t.classList.remove("active"));
+      tab.classList.add("active");
+      document.querySelectorAll(".tab-content").forEach((tc) => (tc.style.display = "none"));
+      document.getElementById(`tab-${tabName}`).style.display = "";
+    });
+  });
+
+  dom.meetingSearch.addEventListener("input", (e) => {
+    renderSidebar(e.target.value.trim());
+  });
+
+  document.getElementById("openMeetBtn").addEventListener("click", () => {
+    chrome.tabs.create({ url: "https://meet.google.com/" });
+  });
+
+  document.getElementById("openZoomBtn").addEventListener("click", () => {
+    chrome.tabs.create({ url: "https://zoom.us/join" });
+  });
+
+  document.getElementById("clearGlobalChatBtn").addEventListener("click", async () => {
+    if (!(await showConfirm("Clear the cross-meeting Ask AI conversation?", {
+      title: "Clear conversation",
+      confirmLabel: "Clear",
+      danger: true,
+    }))) return;
+    await MeetingStore.clearGlobalConversation();
+    renderAsk();
+    showToast("Conversation cleared");
+  });
+
+  document.getElementById("importTranscriptBtn").addEventListener("click", () => triggerImportTranscript());
+
+  bindTopNavbar();
+
+  document.addEventListener("keydown", (e) => {
+    const code = e.code || "";
+    const meta = e.metaKey || e.ctrlKey;
+    const alt = e.altKey && !meta;
+    const inEditable =
+      /^(INPUT|TEXTAREA|SELECT)$/.test(e.target?.tagName) || e.target?.isContentEditable;
+
+    const closeTopModal = () => {
+      const modal =
+        document.getElementById("collapsedSearchModal") ||
+        document.getElementById("shortcutsModal") ||
+        document.getElementById("spacePickerModal");
+      if (modal) {
+        modal.remove();
+        return true;
+      }
+      return false;
+    };
+
+    // Escape — close modals / blur search
+    if (code === "Escape") {
+      if (closeTopModal()) {
+        e.preventDefault();
+        return;
+      }
+      if (!inEditable && document.activeElement === dom.meetingSearch) {
+        dom.meetingSearch.blur();
+      }
+      return;
+    }
+
+    // ⌘/Ctrl+K — always open quick search modal (use code: reliable on all layouts)
+    if (meta && code === "KeyK") {
+      e.preventDefault();
+      openQuickSearchModal();
+      return;
+    }
+
+    // ⌘/Ctrl+N — new blank meeting
+    if (meta && code === "KeyN" && !inEditable) {
+      e.preventDefault();
+      createBlankMeeting();
+      return;
+    }
+
+    // ⌘/Ctrl+, — settings
+    if (meta && code === "Comma") {
+      e.preventDefault();
+      navigate("settings");
+      return;
+    }
+
+    // ⌘/Ctrl+\ — focus mode
+    if (meta && code === "Backslash") {
+      e.preventDefault();
+      toggleFocusMode();
+      return;
+    }
+
+    // ⌘/Ctrl+1..5 — meeting tabs
+    if (meta && !inEditable && state.route === "meeting") {
+      const tabMap = {
+        Digit1: "chat",
+        Digit2: "transcript",
+        Digit3: "summary",
+        Digit4: "actionitems",
+        Digit5: "highlights",
+      };
+      if (tabMap[code]) {
+        e.preventDefault();
+        document.querySelector(`.tab[data-tab="${tabMap[code]}"]`)?.click();
+        return;
+      }
+    }
+
+    // ⌥/Alt+J — Ask AI / chat tab
+    // Use e.code (KeyJ). On macOS Option+J changes e.key to "∆", which broke shortcuts.
+    if (alt && code === "KeyJ") {
+      e.preventDefault();
+      if (state.route === "meeting") {
+        document.querySelector('.tab[data-tab="chat"]')?.click();
+        setTimeout(() => document.getElementById("chatInput")?.focus(), 40);
+      } else {
+        navigate("ask");
+        setTimeout(() => document.getElementById("globalChatInput")?.focus(), 50);
+      }
+      return;
+    }
+
+    // ⌥/Alt+T — transcript tab
+    if (alt && code === "KeyT") {
+      e.preventDefault();
+      if (state.route === "meeting") {
+        document.querySelector('.tab[data-tab="transcript"]')?.click();
+      } else if (state.currentMeetingId) {
+        navigate("meeting", { meetingId: state.currentMeetingId, tab: "transcript" });
+      } else {
+        showToast("Open a meeting first");
+      }
+      return;
+    }
+
+    // ⌥/Alt+S — summary tab
+    if (alt && code === "KeyS" && !inEditable) {
+      e.preventDefault();
+      if (state.route === "meeting") {
+        document.querySelector('.tab[data-tab="summary"]')?.click();
+      }
+      return;
+    }
+  });
+}
+
+// === UTILITIES ===
+function stringToColor(str) {
+  let hash = 0;
+  for (let i = 0; i < (str || "").length; i++) {
+    hash = (str.charCodeAt(i) + ((hash << 5) - hash));
+  }
+  const colors = ["#c1642a", "#3f6f56", "#8a5a44", "#c98a2e", "#6b5b3a", "#b0563c", "#2f7d6f", "#a0523d"];
+  return colors[Math.abs(hash) % colors.length];
+}
+
+function formatDate(dateStr) {
+  if (!dateStr) return "Unknown";
+  const d = new Date(dateStr);
+  const now = new Date();
+  const diff = now - d;
+  if (diff < 86400000 && d.getDate() === now.getDate()) return "Today";
+  if (diff < 172800000 && d.getDate() === now.getDate() - 1) return "Yesterday";
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: d.getFullYear() !== now.getFullYear() ? "numeric" : undefined });
+}
+
+function escapeHtml(str) {
+  if (!str) return "";
+  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function renderMarkdown(md) {
+  if (!md) return "";
+  let html = escapeHtml(md);
+
+  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, "<pre><code>$2</code></pre>");
+  html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
+  html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  html = html.replace(/\*(.+?)\*/g, "<em>$1</em>");
+
+  html = html.replace(/^#### (.+)$/gm, "<h4>$1</h4>");
+  html = html.replace(/^### (.+)$/gm, "<h3>$1</h3>");
+  html = html.replace(/^## (.+)$/gm, "<h2>$1</h2>");
+  html = html.replace(/^# (.+)$/gm, "<h1>$1</h1>");
+
+  html = html.replace(/^\|(.+)\|$/gm, (match) => {
+    const cells = match.split("|").filter((c) => c.trim());
+    if (cells.every((c) => /^[-: ]+$/.test(c.trim()))) return "";
+    const isHeader = match.includes("---");
+    return `<tr>${cells.map((c) => `<${isHeader ? "th" : "td"}>${c.trim()}</${isHeader ? "th" : "td"}>`).join("")}</tr>`;
+  });
+  html = html.replace(/((?:<tr>.*?<\/tr>\s*)+)/g, "<table>$1</table>");
+
+  html = html.replace(/^[\-*] (.+)$/gm, "<li>$1</li>");
+  html = html.replace(/((?:<li>.*?<\/li>\s*)+)/g, "<ul>$1</ul>");
+
+  const lines = html.split("\n");
+  html = lines
+    .map((line) => {
+      const t = line.trim();
+      if (!t) return "";
+      if (t.startsWith("<h") || t.startsWith("<ul") || t.startsWith("</ul") || t.startsWith("<li") || t.startsWith("</li") || t.startsWith("<table") || t.startsWith("</table") || t.startsWith("<tr") || t.startsWith("</tr") || t.startsWith("<td") || t.startsWith("<th") || t.startsWith("<pre") || t.startsWith("</pre")) {
+        return t;
+      }
+      return `<p>${t}</p>`;
+    })
+    .join("\n");
+
+  return html;
+}
+
+function showToast(msg) {
+  dom.toast.innerHTML = `${icon("check", 14)} ${escapeHtml(msg)}`;
+  dom.toast.classList.add("show");
+  setTimeout(() => dom.toast.classList.remove("show"), 2500);
+}
+
+async function exportBackup() {
+  const local = await new Promise((r) => chrome.storage.local.get(null, r));
+  const sync = await new Promise((r) => chrome.storage.sync.get(null, r));
+  if (sync.providers) for (const p of Object.values(sync.providers)) if (p && p.apiKey) p.apiKey = "";
+  const payload = { exportedAt: new Date().toISOString(), local, sync };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const reader = new FileReader();
+  reader.onloadend = () => {
+    chrome.downloads.download({
+      url: reader.result,
+      filename: `ai-meeting-notes-backup-${new Date().toISOString().slice(0, 10)}.json`,
+      saveAs: true,
+    });
+    showToast("Backup download started");
+  };
+  reader.readAsDataURL(blob);
+}
+
+async function createBlankMeeting() {
+  const meeting = {
+    title: "Untitled notes",
+    date: new Date().toISOString(),
+    duration: "—",
+    participants: [],
+    transcript: [],
+    bookmarks: [],
+    status: "completed",
+    isFavorite: false,
+    isPinned: false,
+    language: "en",
+    platform: "import",
+    transcriptConfidence: 1,
+  };
+  const id = await MeetingStore.saveMeeting(meeting);
+  navigate("meeting", { meetingId: id, tab: "chat" });
+  showToast("Blank meeting created");
+}
+
+function toggleFocusMode() {
+  state.focusMode = !state.focusMode;
+  document.getElementById("app")?.classList.toggle("focus-mode", state.focusMode);
+  const btn = document.getElementById("navBtnFocus");
+  btn?.classList.toggle("is-active", state.focusMode);
+  if (btn) btn.title = state.focusMode ? "Exit focus mode" : "Focus mode — hide sidebars";
+  showToast(state.focusMode ? "Focus mode on" : "Focus mode off");
+}
+
+function openShortcutsModal() {
+  const existing = document.getElementById("shortcutsModal");
+  if (existing) existing.remove();
+  const overlay = document.createElement("div");
+  overlay.id = "shortcutsModal";
+  overlay.className = "app-modal-overlay";
+  overlay.innerHTML = `
+    <div class="app-modal-card" role="dialog" aria-modal="true" style="max-width:420px">
+      <div class="app-modal-head">
+        <h3>Keyboard shortcuts</h3>
+        <button type="button" class="app-modal-close" id="scClose">${icon("x", 16)}</button>
+      </div>
+      <div class="shortcuts-grid">
+        <div><span>Quick search</span><code>⌘K</code></div>
+        <div><span>Ask AI / chat tab</span><code>⌥J</code></div>
+        <div><span>Transcript tab</span><code>⌥T</code></div>
+        <div><span>Summary tab</span><code>⌥S</code></div>
+        <div><span>Meeting tabs 1–5</span><code>⌘1…⌘5</code></div>
+        <div><span>New blank meeting</span><code>⌘N</code></div>
+        <div><span>Settings</span><code>⌘,</code></div>
+        <div><span>Focus mode</span><code>⌘\\</code></div>
+        <div><span>Close modal</span><code>Esc</code></div>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const close = () => overlay.remove();
+  overlay.querySelector("#scClose").addEventListener("click", close);
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+}
+
+function triggerImportTranscript() {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = ".txt,.md,.json";
+  input.onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const text = await file.text();
+    const meeting = {
+      title: file.name.replace(/\.[^.]+$/, ""),
+      date: new Date().toISOString(),
+      duration: "Imported",
+      participants: [],
+      transcript: text.split("\n").map((line) => {
+        const match = line.match(/^\[?(\d{1,2}:\d{2}(?::\d{2})?)\]?\s*(.+?):\s*(.+)/);
+        if (match) {
+          return { speaker: match[2], text: match[3], timestamp: match[1] };
+        }
+        return { speaker: "Speaker", text: line, timestamp: "" };
+      }).filter((row) => (row.text || "").trim()),
+      bookmarks: [],
+      status: "completed",
+      isFavorite: false,
+      isPinned: false,
+      language: "en",
+      platform: "import",
+      transcriptConfidence: 1,
+    };
+    const id = await MeetingStore.saveMeeting(meeting);
+    navigate("meeting", { meetingId: id, tab: "transcript" });
+    showToast("Transcript imported");
+  };
+  input.click();
+}
+
+function bindTopNavbar() {
+  document.getElementById("navBtnNewMeeting")?.addEventListener("click", () => createBlankMeeting());
+  document.getElementById("navBtnImport")?.addEventListener("click", () => triggerImportTranscript());
+  document.getElementById("navBtnExport")?.addEventListener("click", () => exportBackup());
+  document.getElementById("navBtnAsk")?.addEventListener("click", () => navigate("ask"));
+  document.getElementById("navBtnShortcuts")?.addEventListener("click", () => openShortcutsModal());
+  document.getElementById("navBtnFocus")?.addEventListener("click", () => toggleFocusMode());
+}
+
+// === INIT ===
+async function init() {
+  cacheDom();
+  await initTheme();
+  hydrateStaticIcons();
+  hydrateThemeToggleIcons(icon);
+  bindThemeToggles(document, { cycle: false });
+  // Alt/Shift+click cycles light → dark → system
+  document.querySelectorAll("[data-theme-toggle]").forEach((btn) => {
+    btn.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      const order = ["light", "dark", "system"];
+      const i = order.indexOf(getThemePref());
+      applyTheme(order[(i + 1) % order.length], { animate: true, fromEl: btn });
+    });
+  });
+  bindCustomSelects(document);
+  setupEvents();
+  await renderSidebar();
+
+  // First-run: durable folder backup consent (or local-only)
+  await maybeAskBackupConsent();
+
+  const settings = await getSettings();
+  if (settings.collapseSidebarOnStart) {
+    state.isSidebarCollapsed = true;
+    dom.leftSidebar.classList.add("collapsed");
+    updateCollapseIcon();
+  }
+
+  // Deep-link: popup "More settings" / options redirect → in-app Settings
+  const launchRoute = (() => {
+    const hash = (location.hash || "").replace(/^#/, "").split("?")[0].toLowerCase();
+    if (hash === "settings") return "settings";
+    try {
+      if (new URLSearchParams(location.search).get("route") === "settings") return "settings";
+    } catch (_) {}
+    return null;
+  })();
+  if (launchRoute === "settings") {
+    history.replaceState(null, "", location.pathname);
+    navigate("settings");
+    return;
+  }
+
+  const result = await new Promise((r) => chrome.storage.local.get(["lastMeetingId", "openMeetingTab"], r));
+  if (result.lastMeetingId && settings.openLastMeetingOnLaunch !== false) {
+    const meeting = await MeetingStore.getMeeting(result.lastMeetingId);
+    if (meeting) {
+      const tab = result.openMeetingTab || "summary";
+      navigate("meeting", { meetingId: result.lastMeetingId, tab });
+      await chrome.storage.local.remove(["lastMeetingId", "openMeetingTab"]);
+      return;
+    }
+  }
+  await chrome.storage.local.remove(["openMeetingTab"]);
+
+  navigate("home");
+}
+
+init();

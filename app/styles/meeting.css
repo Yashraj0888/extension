@@ -1,0 +1,155 @@
+/* Meeting view + tabs */
+/* ============ MEETING VIEW ============ */
+.meeting-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 14px;
+  flex-shrink: 0;
+  gap: 14px;
+}
+
+.meeting-header-left { display: flex; align-items: flex-start; gap: 14px; min-width: 0; flex: 1; }
+
+.back-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 7px;
+  border-radius: var(--r-sm);
+  display: flex;
+  align-items: center;
+  margin-top: 2px;
+  transition: all 0.14s ease;
+  flex-shrink: 0;
+}
+.back-btn:hover { color: var(--text-primary); background: var(--bg-hover); }
+
+.meeting-title-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+
+.meeting-title {
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.015em;
+  line-height: 1.2;
+  border: none;
+  background: none;
+  outline: none;
+  font-family: var(--font-display);
+  min-width: 0;
+  max-width: 100%;
+}
+.meeting-title[contenteditable="true"] {
+  cursor: text;
+  border-bottom: 1px dashed var(--border-strong);
+  padding-bottom: 2px;
+}
+
+.meeting-title-edit-btn {
+  background: none; border: none; color: var(--text-faint); cursor: pointer;
+  padding: 4px; border-radius: var(--r-xs); display: flex; flex-shrink: 0;
+  transition: all 0.14s ease;
+}
+.meeting-title-edit-btn:hover { color: var(--brand); background: var(--brand-soft); }
+
+.meeting-meta-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+
+.meta-chip {
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: var(--bg-tint);
+  border: 1px solid var(--border);
+  padding: 4px 12px;
+  border-radius: var(--r-pill);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.meta-chip .icon-wrap { color: var(--text-muted); }
+
+.meeting-header-actions { display: flex; gap: 8px; flex-shrink: 0; }
+
+.action-btn {
+  background: var(--bg-raised);
+  border: 1px solid var(--border-strong);
+  color: var(--text-muted);
+  cursor: pointer;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--r-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.14s ease;
+}
+.action-btn:hover { background: var(--bg-tint); color: var(--text-primary); border-color: var(--border-strong); }
+.action-btn.favorited { color: var(--gold); border-color: #e8cf9c; background: var(--gold-soft); }
+.action-btn.pinned { color: var(--brand); border-color: var(--brand-soft-2); background: var(--brand-soft); }
+.action-btn.danger:hover { color: var(--danger); border-color: var(--danger-soft); background: var(--danger-soft); }
+
+/* Tags editor under meeting title */
+.tags-editor-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+.tag-add-btn {
+  padding: 4px 10px;
+  border-radius: var(--r-pill);
+  border: 1px dashed var(--border-strong);
+  background: none;
+  color: var(--text-muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.tag-add-btn:hover { border-color: var(--brand); color: var(--brand-ink); }
+.tag-add-input {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-pill);
+  padding: 4px 12px;
+  font-size: 11.5px;
+  font-family: var(--font-sans);
+  outline: none;
+  width: 120px;
+}
+.tag-add-input:focus { border-color: var(--brand); }
+
+/* ============ TABS ============ */
+.meeting-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 24px;
+  flex-shrink: 0;
+  overflow-x: auto;
+}
+
+.tab {
+  padding: 10px 16px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  font-size: 13.5px;
+  font-weight: 500;
+  font-family: var(--font-sans);
+  color: var(--text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: color 0.14s ease;
+  margin-bottom: -1px;
+  white-space: nowrap;
+}
+.tab .icon-wrap { color: var(--text-faint); }
+.tab:hover { color: var(--text-primary); }
+.tab.active { color: var(--brand-ink); border-bottom-color: var(--brand); font-weight: 600; }
+.tab.active .icon-wrap { color: var(--brand); }
+.tab .tab-badge {
+  font-size: 10px; font-weight: 700; background: var(--bg-tint); color: var(--text-muted);
+  padding: 1px 6px; border-radius: var(--r-pill);
+}
+.tab.active .tab-badge { background: var(--brand-soft); color: var(--brand-ink); }
+
+.tab-content { flex: 1; overflow-y: auto; }
+

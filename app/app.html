@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AfterMeet</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="../icons/favicon.png">
+  <link rel="icon" type="image/png" sizes="48x48" href="../icons/icon48.png">
+  <link rel="icon" type="image/png" sizes="128x128" href="../icons/icon128.png">
+  <link rel="apple-touch-icon" href="../icons/icon128.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="theme.css">
+  <link rel="stylesheet" href="app.css">
+  <script>
+    (function () {
+      try {
+        var p = localStorage.getItem("amn_theme") || "system";
+        var d = p === "dark" || (p === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.setAttribute("data-theme", d ? "dark" : "light");
+        document.documentElement.setAttribute("data-theme-pref", p);
+        document.documentElement.style.colorScheme = d ? "dark" : "light";
+        document.documentElement.classList.toggle("dark", !!d);
+      } catch (e) {}
+    })();
+  </script>
+</head>
+<body>
+  <div id="app">
+    <!-- Left Sidebar -->
+    <aside id="left-sidebar">
+      <div class="sidebar-header">
+        <button type="button" class="app-brand" id="appBrandHome" title="Go to home" aria-label="AfterMeet — go to home">
+          <div class="brand-icon" id="brandIcon"></div>
+          <span class="brand-name">AfterMeet</span>
+        </button>
+        <button class="sidebar-collapse-btn" id="collapseSidebar" title="Collapse sidebar"></button>
+      </div>
+
+      <div class="sidebar-search">
+        <div class="sidebar-search-inner">
+          <span class="search-icon" id="searchIcon"></span>
+          <input type="text" id="meetingSearch" placeholder="Search meetings… (⌘K)" autocomplete="off">
+        </div>
+      </div>
+
+      <nav class="sidebar-nav">
+        <a class="nav-item active" data-route="home" id="nav-home"></a>
+        <div class="nav-divider"></div>
+        <a class="nav-item" data-route="meetings" id="nav-meetings"></a>
+        <a class="nav-item" data-route="tasks" id="nav-tasks"></a>
+        <a class="nav-item" data-route="people" id="nav-people"></a>
+        <a class="nav-item" data-route="favorites" id="nav-favorites"></a>
+        <a class="nav-item" data-route="spaces" id="nav-spaces"></a>
+        <a class="nav-item" data-route="search" id="nav-search"></a>
+        <a class="nav-item" data-route="ask" id="nav-ask"></a>
+        <div class="nav-divider"></div>
+        <a class="nav-item" data-route="settings" id="nav-settings"></a>
+      </nav>
+
+      <div class="sidebar-section">
+        <div class="section-label">Recent</div>
+        <div id="recentMeetingsList" class="meeting-list"></div>
+      </div>
+
+      <div class="sidebar-footer">
+        <p class="sidebar-credit">Made with ❤️ by Yash</p>
+      </div>
+
+      <div class="sidebar-resize-handle" id="sidebarResizeHandle" title="Drag to resize" aria-hidden="true"></div>
+    </aside>
+
+    <!-- Center Panel -->
+    <main id="center-panel">
+      <header id="top-navbar" class="top-navbar" role="banner">
+        <div class="top-navbar-left">
+          <div class="top-navbar-titles">
+            <span class="top-navbar-title" id="navbarTitle">Home</span>
+            <span class="top-navbar-sub" id="navbarSub">Meeting overview</span>
+          </div>
+        </div>
+        <div class="top-navbar-actions">
+          <button type="button" class="top-nav-btn" id="navBtnNewMeeting" title="Create blank meeting notes"></button>
+          <button type="button" class="top-nav-btn" id="navBtnImport" title="Import notes (txt, md, json, html, rtf, doc, pdf)"></button>
+          <button type="button" class="top-nav-btn" id="navBtnExport" title="Export JSON backup"></button>
+          <button type="button" class="top-nav-btn" id="navBtnAsk" title="Ask AI across meetings"></button>
+          <button type="button" class="top-nav-btn" id="navBtnShortcuts" title="Keyboard shortcuts"></button>
+          <button type="button" class="top-nav-btn" id="navBtnFocus" title="Focus mode — hide sidebars"></button>
+          <div class="top-nav-divider" aria-hidden="true"></div>
+          <button type="button" class="theme-toggle" data-theme-toggle aria-label="Switch to dark mode" title="Switch to dark mode">
+            <span class="theme-toggle-thumb" aria-hidden="true">
+              <span class="theme-toggle-icon sun" data-theme-icon="sun"></span>
+              <span class="theme-toggle-icon moon" data-theme-icon="moon"></span>
+            </span>
+          </button>
+        </div>
+      </header>
+
+      <!-- Home Dashboard -->
+      <div id="view-home" class="view">
+        <div class="home-dashboard">
+          <div class="home-top-row">
+            <div class="home-greeting-block">
+              <h1 class="home-title" id="homeGreeting">Good morning</h1>
+              <p class="home-subtitle">Here's your meeting overview.</p>
+            </div>
+            <div class="home-top-actions">
+              <div class="home-global-search">
+                <span class="search-icon" id="homeSearchIcon"></span>
+                <input type="text" id="homeGlobalSearch" placeholder="Search meetings, people, notes…" autocomplete="off" />
+              </div>
+              <div class="home-profile" id="homeProfile" title="Your profile">Y</div>
+            </div>
+          </div>
+
+          <div class="quick-actions">
+            <button class="quick-btn" id="openMeetBtn"></button>
+            <button class="quick-btn secondary" id="importTranscriptBtn"></button>
+          </div>
+
+          <div id="providerStatusCard"></div>
+          <div class="analytics-strip" id="analyticsStrip"></div>
+
+          <section class="home-section today-section">
+            <div class="section-heading-row">
+              <div class="section-heading-left">
+                <div class="meetings-strip-tabs" role="tablist" aria-label="Meeting schedule">
+                  <button type="button" class="meetings-strip-tab active" data-meet-strip="today" role="tab" aria-selected="true">Today's meetings</button>
+                  <button type="button" class="meetings-strip-tab" data-meet-strip="upcoming" role="tab" aria-selected="false">Upcoming (24h)</button>
+                </div>
+                <button type="button" class="link-btn" id="viewCalendarBtn">View calendar</button>
+                <button type="button" class="link-btn" id="connectCalendarBtn">Connect calendar</button>
+              </div>
+              <button type="button" class="link-btn" id="todayViewAll">View all</button>
+            </div>
+            <div id="todayMeetingsScroll" class="today-meetings-scroll">
+              <p class="empty-state-sm">No meetings today</p>
+            </div>
+            <p class="calendar-hint" id="calendarHint" style="display:none"></p>
+          </section>
+
+          <section class="home-section recent-table-section">
+            <div class="recent-table-toolbar" id="recentToolbar">
+              <div class="recent-toolbar-tabs">
+                <button type="button" class="recent-tab active" data-tab="all">All</button>
+                <button type="button" class="recent-tab" data-tab="meet">Meet</button>
+                <button type="button" class="recent-tab" data-tab="starred">Starred</button>
+                <button type="button" class="recent-tab" data-tab="notes">With notes</button>
+              </div>
+              <div class="recent-toolbar-filters">
+                <select id="homeFilterDate" class="home-filter-select">
+                  <option value="all">Date: All time</option>
+                  <option value="today">Date: Today</option>
+                  <option value="week">Date: This week</option>
+                  <option value="month">Date: This month</option>
+                  <option value="custom">Date: Custom…</option>
+                </select>
+                <select id="homeFilterPeople" class="home-filter-select">
+                  <option value="all">People: All</option>
+                  <option value="1">People: 1</option>
+                  <option value="2">People: 2</option>
+                  <option value="3+">People: 3+</option>
+                </select>
+                <select id="homeFilterDuration" class="home-filter-select">
+                  <option value="any">Duration: Any</option>
+                  <option value="short">Duration: Under 20 min</option>
+                  <option value="semi">Duration: 20–43 min</option>
+                  <option value="long">Duration: Over 45 min</option>
+                </select>
+              </div>
+            </div>
+            <div class="recent-table-wrap">
+              <div class="recent-meetings-grid" id="recentMeetingsGrid">
+                <div class="rg-head-row">
+                  <div class="rg-head col-fav"></div>
+                  <div class="rg-head col-meeting">Meeting</div>
+                  <div class="rg-head col-when">When</div>
+                  <div class="rg-head col-duration">Duration</div>
+                  <div class="rg-head col-people">People</div>
+                  <div class="rg-head col-source">Source</div>
+                  <div class="rg-head col-notes">Notes</div>
+                  <div class="rg-head col-actions"></div>
+                </div>
+              </div>
+            </div>
+            <div class="recent-table-pager" id="recentMeetingsPager" hidden></div>
+          </section>
+        </div>
+      </div>
+
+      <!-- All Meetings View -->
+      <div id="view-meetings" class="view" style="display:none">
+        <div class="home-header">
+          <div>
+            <h1 class="home-title">All meetings</h1>
+            <p class="home-subtitle">Every captured session, in one place</p>
+          </div>
+        </div>
+        <div class="tag-filter-row" id="allMeetingsTagFilter"></div>
+        <div id="allMeetingsList"></div>
+      </div>
+
+      <!-- Favorites View -->
+      <div id="view-favorites" class="view" style="display:none">
+        <div class="home-header">
+          <div>
+            <h1 class="home-title">Favorites</h1>
+            <p class="home-subtitle">Meetings you've starred for quick access</p>
+          </div>
+        </div>
+        <div id="favoritesGrid" class="meeting-grid"></div>
+      </div>
+
+      <!-- Spaces View -->
+      <div id="view-spaces" class="view" style="display:none">
+        <div class="home-header">
+          <div>
+            <h1 class="home-title">Spaces</h1>
+            <p class="home-subtitle">Browse meetings you've saved into spaces</p>
+          </div>
+        </div>
+        <div class="tag-filter-row" id="spacesFilterRow"></div>
+        <div id="spacesMeetingsList"></div>
+      </div>
+
+      <!-- My Tasks (global action items) -->
+      <div id="view-tasks" class="view" style="display:none"></div>
+
+      <!-- People Insights (participants across meetings) -->
+      <div id="view-people" class="view" style="display:none"></div>
+
+      <!-- Full-text Search View -->
+      <div id="view-search" class="view" style="display:none">
+        <div class="home-header">
+          <div>
+            <h1 class="home-title">Search transcripts</h1>
+            <p class="home-subtitle">Full-text search across every meeting you've ever recorded</p>
+          </div>
+        </div>
+        <div class="search-hero">
+          <input type="text" id="globalSearchInput" class="search-input-lg" placeholder="Search for anything said in any meeting...">
+        </div>
+        <div id="globalSearchResults"></div>
+      </div>
+
+      <!-- Ask AI across meetings -->
+      <div id="view-ask" class="view" style="display:none">
+        <div class="home-header">
+          <div class="ask-title-row">
+            <div class="ask-title-mark" id="askTitleMark" aria-hidden="true"></div>
+            <div>
+              <h1 class="home-title">Ask AI</h1>
+              <p class="home-subtitle">Select meetings, then ask about decisions, actions, and themes</p>
+            </div>
+          </div>
+          <button class="quick-btn secondary" id="clearGlobalChatBtn" style="padding:8px 16px;font-size:12.5px"></button>
+        </div>
+        <div id="globalChatContainer"></div>
+      </div>
+
+      <!-- Settings View -->
+      <div id="view-settings" class="view" style="display:none">
+        <div class="home-header">
+          <div>
+            <h1 class="home-title">Settings</h1>
+            <p class="home-subtitle">Configure your AI providers and prompt templates</p>
+          </div>
+        </div>
+        <div class="settings-tabs-inapp">
+          <button class="tab active" data-settings-tab="providers">AI providers</button>
+          <button class="tab" data-settings-tab="templates">Prompt templates</button>
+          <button class="tab" data-settings-tab="calendar">Google Calendar</button>
+          <button class="tab" data-settings-tab="preferences">Preferences</button>
+          <button class="tab" data-settings-tab="data">Data &amp; privacy</button>
+        </div>
+        <div id="settingsContent"></div>
+      </div>
+
+      <!-- Meeting View -->
+      <div id="view-meeting" class="view" style="display:none">
+        <div class="meeting-header">
+          <div class="meeting-header-left">
+            <button class="back-btn" id="backToHome" title="Back to Home"></button>
+            <div style="min-width:0;flex:1">
+              <div class="meeting-title-row">
+                <h2 class="meeting-title" id="meetingViewTitle">Meeting Title</h2>
+                <button class="meeting-title-edit-btn" id="btnEditTitle" title="Rename meeting"></button>
+              </div>
+              <div class="meeting-meta-row" id="meetingViewMeta"></div>
+              <div class="tags-editor-row" id="meetingTagsRow"></div>
+            </div>
+          </div>
+          <div class="meeting-header-actions">
+            <button class="action-btn" id="btnPin" title="Pin meeting"></button>
+            <button class="action-btn" id="btnFavorite" title="Favorite"></button>
+            <button class="action-btn danger" id="btnDeleteMeeting" title="Delete meeting"></button>
+          </div>
+        </div>
+
+        <div class="meeting-tabs">
+          <button class="tab active" data-tab="chat"></button>
+          <button class="tab" data-tab="transcript"></button>
+          <button class="tab" data-tab="summary"></button>
+          <button class="tab" data-tab="actionitems"></button>
+          <button class="tab" data-tab="highlights"></button>
+        </div>
+
+        <div class="tab-content" id="tab-chat">
+          <div id="chatContainer"></div>
+        </div>
+        <div class="tab-content" id="tab-transcript" style="display:none">
+          <div id="transcriptContainer"></div>
+        </div>
+        <div class="tab-content" id="tab-summary" style="display:none">
+          <div id="summaryContainer"></div>
+        </div>
+        <div class="tab-content" id="tab-actionitems" style="display:none">
+          <div id="actionItemsContainer"></div>
+        </div>
+        <div class="tab-content" id="tab-highlights" style="display:none">
+          <div id="highlightsContainer"></div>
+        </div>
+      </div>
+    </main>
+
+    <!-- Right Sidebar -->
+    <aside id="right-sidebar" class="collapsed">
+      <div class="right-sidebar-header">
+        <button type="button" class="sidebar-collapse-btn" id="collapseRightSidebar" title="Collapse panel" aria-label="Collapse panel"></button>
+        <span class="right-sidebar-label">Details</span>
+      </div>
+      <div class="right-collapsed-actions" aria-label="Right panel shortcuts">
+        <button type="button" class="right-rail-action" data-context="home" data-target="homeStatsCard" title="Quick stats" aria-label="Quick stats"></button>
+        <button type="button" class="right-rail-action" data-context="home" data-target="homePinnedCard" title="Pinned meetings" aria-label="Pinned meetings"></button>
+        <button type="button" class="right-rail-action" data-context="home" data-target="homeShortcutsCard" title="Keyboard shortcuts" aria-label="Keyboard shortcuts"></button>
+        <button type="button" class="right-rail-action" data-context="meeting" data-target="meetingDetailCard" title="Meeting details" aria-label="Meeting details"></button>
+        <button type="button" class="right-rail-action" data-context="meeting" data-target="meetingParticipantsCard" title="Participants" aria-label="Participants"></button>
+        <button type="button" class="right-rail-action" data-context="meeting" data-target="meetingExportCard" title="Export meeting" aria-label="Export meeting"></button>
+        <button type="button" class="right-rail-action" data-context="settings" data-target="rightSettings" title="Settings details" aria-label="Settings details"></button>
+      </div>
+      <div id="rightHome" class="right-content">
+        <div class="right-card" id="homeStatsCard">
+          <h4 class="right-card-title">Quick stats</h4>
+          <div class="stat-grid">
+            <div class="stat">
+              <span class="stat-value" id="statTotalMeetings">0</span>
+              <span class="stat-label">Meetings</span>
+            </div>
+            <div class="stat">
+              <span class="stat-value" id="statThisWeek">0</span>
+              <span class="stat-label">This week</span>
+            </div>
+            <div class="stat">
+              <span class="stat-value" id="statFavorites">0</span>
+              <span class="stat-label">Favorites</span>
+            </div>
+          </div>
+        </div>
+        <div class="right-card" id="homePinnedCard">
+          <h4 class="right-card-title">Pinned</h4>
+          <div id="pinnedList">
+            <p class="empty-state-sm">No pinned meetings</p>
+          </div>
+        </div>
+        <div class="right-card" id="homeShortcutsCard">
+          <h4 class="right-card-title">Keyboard shortcuts</h4>
+          <div style="font-size:12.5px;color:var(--text-secondary);display:flex;flex-direction:column;gap:7px">
+            <div style="display:flex;justify-content:space-between"><span>Quick search</span><code>⌘K</code></div>
+            <div style="display:flex;justify-content:space-between"><span>Ask AI / chat</span><code>⌥J</code></div>
+            <div style="display:flex;justify-content:space-between"><span>Transcript tab</span><code>⌥T</code></div>
+            <div style="display:flex;justify-content:space-between"><span>New meeting</span><code>⌘N</code></div>
+            <div style="display:flex;justify-content:space-between"><span>Focus mode</span><code>⌘\\</code></div>
+            <div style="display:flex;justify-content:space-between"><span>Toggle details</span><code>⌘.</code></div>
+            <div style="display:flex;justify-content:space-between"><span>Settings</span><code>⌘,</code></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="rightMeeting" class="right-content" style="display:none">
+        <div id="meetingDetailCard"></div>
+        <div id="meetingParticipantsCard"></div>
+        <div class="right-card" id="meetingExportCard">
+          <h4 class="right-card-title">Export</h4>
+          <div class="right-actions">
+            <button class="right-action-btn" id="btnCopyTranscript"></button>
+            <button class="right-action-btn" id="btnCopySummary"></button>
+            <button class="right-action-btn" id="btnDownloadMD"></button>
+            <button class="right-action-btn" id="btnDownloadDoc"></button>
+            <button class="right-action-btn" id="btnPrint"></button>
+          </div>
+        </div>
+      </div>
+
+      <div id="rightSettings" class="right-content" style="display:none"></div>
+    </aside>
+  </div>
+
+  <div class="global-toast" id="toast"></div>
+
+  <script src="icons.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
