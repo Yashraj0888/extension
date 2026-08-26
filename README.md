@@ -23,7 +23,11 @@
 
 ## How it works
 
-AfterMeet reads Google Meet’s live captions, saves the transcript locally, and — when you finish a meeting — sends that transcript to **your** AI provider for a summary and action items. You can then browse notes and ask follow-up questions in the app.
+
+<img width="3838" height="2019" alt="finalimage" src="https://github.com/user-attachments/assets/61f935eb-ab3d-4f9a-aeaf-06154d12fa49" />
+
+
+When you start a Google meet AfterMeet gets active and ask you to record the meeting so that you won't end up recording junk meets as well and burn your tockens, Only record the meet when you think its gonna be important and try to speak in English as Google meet it is good at transcribing english more correclty. AfterMeet reads Google Meet’s live captions, saves the transcript locally, and — when you finish a meeting — sends that transcript to **your** AI provider for a summary and action items. You can then browse notes and ask follow-up questions in the app.
 
 Simple end-to-end flow: Meet captions → local transcript → AI → notes you can browse and ask about.
 
@@ -81,6 +85,7 @@ flowchart LR
   App --> AI
 ```
 
+
 No AfterMeet server sits in the middle: transcripts stay local; AI calls go **directly** from Chrome to the provider you configured.
 
 ---
@@ -132,7 +137,7 @@ Before you start, make sure you have:
 Replace the URL with your fork or the official repo once it is published:
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/aftermeet.git
+[git clone https://github.com/Yashraj0888/extension.git
 ```
 
 ```bash
@@ -186,15 +191,19 @@ AfterMeet is not (yet) on the Chrome Web Store for everyone — you install it a
    ```text
    chrome://extensions
    ```
+or open settings and then click on the extention 
+<img width="3838" height="1831" alt="image1" src="https://github.com/user-attachments/assets/a4e8eea1-c61f-4722-92da-e9da449302ea" />
+
 
 3. In the **top-right** corner, turn **Developer mode** **ON**.
 
-<!-- SCREENSHOT: chrome://extensions with Developer mode toggle -->
-![Chrome extensions page — Developer mode](docs/screenshots/01-developer-mode.png)
+<img width="3838" height="292" alt="image2" src="https://github.com/user-attachments/assets/07edf341-5e77-445a-856b-5daec39c7464" />
 
-*Add screenshot: `chrome://extensions` with Developer mode enabled (top-right toggle).*
 
 When Developer mode is on, you will see extra buttons such as **Load unpacked**, **Pack extension**, and **Update**.
+
+
+<img width="3838" height="292" alt="image3" src="https://github.com/user-attachments/assets/74726ef2-9a05-452c-ba34-38bf8034d46b" />
 
 ---
 
@@ -205,10 +214,8 @@ When Developer mode is on, you will see extra buttons such as **Load unpacked**,
 3. Select the folder that contains **`manifest.json`** (the project root you cloned or unzipped — not a nested `app/` folder).
 4. Click **Select** / **Open**.
 
-<!-- SCREENSHOT: Load unpacked dialog / extension card -->
-![Load unpacked — AfterMeet installed](docs/screenshots/02-extension-loaded.png)
+<img width="2298" height="1353" alt="image4" src="https://github.com/user-attachments/assets/25bb9c23-4bf0-4403-bef2-a585313feff5" />
 
-*Add screenshot: AfterMeet card on the extensions page after a successful load.*
 
 ### Verify it worked
 
@@ -217,9 +224,10 @@ On the AfterMeet card you should see:
 - Name: **AfterMeet**
 - Version: **3.5.7** (or whatever is in `manifest.json`)
 - Toggle: **enabled** (blue / on)
-- An **Extension ID** (long string) — you will need this later for Google Calendar OAuth
+<img width="3838" height="639" alt="image5" src="https://github.com/user-attachments/assets/0d623562-1f09-44dc-9b54-5b5d5f6bb595" />
 
-If Chrome shows an error, open the error link on the card and fix any missing files, then click **Reload**.
+
+
 
 ---
 
@@ -231,17 +239,9 @@ Pinning keeps AfterMeet one click away.
 2. Find **AfterMeet**.
 3. Click the **pin** icon so it stays visible.
 
-<!-- SCREENSHOT: pin from toolbar -->
-![Pin AfterMeet in the toolbar](docs/screenshots/03-pin-extension.png)
-
-*Add screenshot: Extensions menu with AfterMeet pinned.*
-
 Click the AfterMeet icon to open the **popup** (status, quick AI settings, **Open app**).
 
-<!-- SCREENSHOT: popup -->
-![AfterMeet toolbar popup](docs/screenshots/04-popup.png)
-
-*Add screenshot: the toolbar popup.*
+<img width="3838" height="1011" alt="image6" src="https://github.com/user-attachments/assets/ac1cb4fc-2d24-49a3-84f3-d6407d064aa7" />
 
 ---
 
@@ -256,10 +256,8 @@ Either:
 - Click the extension icon → configure AI in the **popup**, then **Save**, or  
 - Click **Open app** → sidebar → **Settings** → **AI / Providers**
 
-<!-- SCREENSHOT: AI settings -->
-![Settings — AI provider and API key](docs/screenshots/05-ai-settings.png)
+<img width="3838" height="1750" alt="image7" src="https://github.com/user-attachments/assets/39576cb2-8972-4f14-81c5-321c498b7f34" />
 
-*Add screenshot: Settings with provider, API key, and model fields.*
 
 ### Choose a provider
 
@@ -304,10 +302,8 @@ cat .env.example
 
 3. Turn **captions** on in Meet (CC). The extension tries to help enable them when possible — if capture is empty, turn captions on manually.
 
-<!-- SCREENSHOT: Meet with captions + widget -->
-![Google Meet with AfterMeet capture widget](docs/screenshots/06-meet-capture.png)
+<img width="3838" height="2019" alt="image8" src="https://github.com/user-attachments/assets/71f658b5-802c-4d8e-a413-edcf9f2c72f3" />
 
-*Add screenshot: Meet call with captions on and the AfterMeet on-page widget visible.*
 
 ### During the call
 
@@ -321,15 +317,9 @@ cat .env.example
 2. Open the AfterMeet popup → **Open app** (or **Open last meeting**).
 3. Open the meeting → check **Transcript**, then **Summary** / **Action items** / **Chat**.
 
-<!-- SCREENSHOT: home or meeting after save -->
-![Home dashboard with a saved meeting](docs/screenshots/07-home.png)
 
-*Add screenshot: Home with today’s / recent meetings.*
+<img width="1919" height="1015" alt="image" src="https://github.com/user-attachments/assets/c4e5f08d-336a-40ef-a80b-91b73288678a" />
 
-<!-- SCREENSHOT: meeting view -->
-![Meeting view — summary and chat](docs/screenshots/08-meeting-view.png)
-
-*Add screenshot: meeting tabs (Chat, Transcript, Summary, Actions).*
 
 ### Tips for better transcripts
 
@@ -372,10 +362,7 @@ Connect Calendar to show **Today’s meetings** and **Upcoming (24h)** on Home.
 2. Click **Save Client ID**.
 3. Click **Connect account** and finish the Google sign-in prompt.
 
-<!-- SCREENSHOT: calendar settings -->
-![Google Calendar OAuth setup in Settings](docs/screenshots/09-calendar-oauth.png)
 
-*Add screenshot: Calendar panel with redirect URI, Client ID, and Connect.*
 
 Home should now show calendar cards under **Today’s meetings** / **Upcoming (24h)**.
 
