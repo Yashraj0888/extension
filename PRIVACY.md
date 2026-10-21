@@ -1,6 +1,6 @@
 # Privacy Policy
 
-**Last updated:** 26 August 2026
+**Last updated:** 21 October 2026
 
 This Privacy Policy explains how **AfterMeet** handles information when you use the open-source Chrome extension and local app.
 
@@ -30,7 +30,11 @@ Depending on how you use AfterMeet, the extension may store locally in Chrome st
 | Integration settings | AI provider choice, model names, API keys you paste, Calendar OAuth tokens / client ID you configure |
 | Capture state | In-progress caption buffers while a Meet call is active |
 
-Local storage uses Chrome APIs such as `storage` and `unlimitedStorage`. Optional folder backup writes JSON (or similar) to a directory **you** select via the browser’s file access prompts.
+Local storage uses Chrome APIs such as `storage` and `unlimitedStorage`.
+
+**Chrome Sync note:** your *settings* (theme, preferences, prompt templates, AI provider choice, and any AI provider API keys you enter) are saved with `chrome.storage.sync`. If you are signed in to Chrome with sync enabled, Chrome may sync these settings, **including API keys**, across your own devices through your Google account. Meeting content (transcripts, summaries, chats) is stored with `chrome.storage.local` and is **not** synced by AfterMeet. Calendar OAuth tokens are stored locally only. Backup/export files exclude API keys and OAuth tokens.
+
+Optional folder backup writes JSON (or similar) to a directory **you** select via the browser’s file access prompts.
 
 ### Not collected by project maintainers by default
 
@@ -55,11 +59,21 @@ Those providers process data under their own privacy policies. Review:
 
 ### Google Meet
 
-Caption text is read from the Meet page in your browser while you use capture. Google’s products remain governed by Google’s terms and privacy policy.
+Caption text is read from the Meet page in your browser only after you choose **“Yes, record”** in the in-call prompt for that call. You are responsible for telling other participants that you are taking notes and for complying with any consent or recording laws that apply to them. Google’s products remain governed by Google’s terms and privacy policy.
 
 ### Google Calendar (optional)
 
-If you connect Calendar, OAuth tokens and calendar-related requests go to Google APIs using the client configuration you supply. Tokens are stored locally.
+If you connect Calendar, OAuth tokens and calendar-related requests go to Google APIs using the client configuration you supply. Tokens are stored locally. AfterMeet requests only the read-only scope `https://www.googleapis.com/auth/calendar.readonly` to show your upcoming meetings.
+
+**Google API Services User Data Policy / Limited Use.** AfterMeet’s use and transfer to any other app of information received from Google APIs will adhere to the [Google API Services User Data Policy](https://developers.google.com/terms/api-services-user-data-policy), including the Limited Use requirements. Calendar data is used only to display your upcoming meetings inside the extension on your device. It is not transferred to AfterMeet maintainers or third parties, is not used for advertising, is not sold, and is not read by humans.
+
+### Fonts and other network requests
+
+The extension bundles its fonts and does not load scripts or other code from remote servers. The only network requests it makes are to Google Meet (the page you are on), the AI provider endpoint you configure, and (if you connect Calendar) Google’s OAuth and Calendar APIs.
+
+### Data we do not do
+
+We do not sell or transfer user data to third parties outside the approved use cases above, do not use or transfer it for purposes unrelated to the extension’s single purpose (taking notes on your meetings), and do not use or transfer it to determine creditworthiness or for lending purposes.
 
 ### Exports and backups
 
@@ -71,13 +85,12 @@ If you export Markdown/Word/PDF/JSON or enable folder backup, files exist wherev
 
 The extension requests permissions described in `manifest.json`, including (as applicable):
 
-- Access to `meet.google.com` for caption capture
-- Storage for local notes
-- Tabs / scripting / activeTab for the Meet experience and app
-- Downloads for exports
-- Identity for optional Calendar OAuth
-- Host access to AI and Google API endpoints you use
-- Optional broader host access if you use a custom HTTP(S) AI endpoint
+- Access to `meet.google.com` (content script) to read captions while you capture a meeting
+- `storage` / `unlimitedStorage` to keep meeting notes locally
+- `downloads` for exports (PDF, Word, Markdown, JSON backups)
+- `identity` for the optional Google Calendar OAuth flow
+- Host access to the AI endpoints (Gemini, OpenAI, Anthropic, DeepSeek) and Google APIs you use
+- Optional host access, requested at runtime for one origin only, if you use a custom OpenAI-compatible endpoint
 
 Permissions exist so the extension can function; they are not a license for maintainers to access your machine.
 

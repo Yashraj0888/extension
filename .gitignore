@@ -37,3 +37,6 @@ meetings-export*.json
 *.crx
 *.pem
 web-ext-artifacts/
+
+# Stray backups
+*.bak

@@ -3,10 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>Opening settings…</title>
-  <script>
-    // Chrome "Extension options" should open the real in-app Settings view.
-    location.replace(chrome.runtime.getURL("app/app.html#settings"));
-  </script>
+  <script src="options-redirect.js"></script>
 </head>
 <body>
   <p style="font:14px/1.4 system-ui,sans-serif;padding:24px;color:#3d4f48">

@@ -12,6 +12,9 @@ export async function exportBackup() {
   const local = await new Promise((r) => chrome.storage.local.get(null, r));
   const sync = await new Promise((r) => chrome.storage.sync.get(null, r));
   if (sync.providers) for (const p of Object.values(sync.providers)) if (p && p.apiKey) p.apiKey = "";
+  // Never export raw API keys or OAuth tokens in the backup file.
+  delete local.google_calendar_token;
+  delete sync.geminiApiKey;
   const payload = { exportedAt: new Date().toISOString(), local, sync };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const reader = new FileReader();

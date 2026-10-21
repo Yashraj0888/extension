@@ -6,20 +6,7 @@
   <title>AfterMeet</title>
   <link rel="stylesheet" href="app/theme.css">
   <link rel="stylesheet" href="popup.css">
-  <script>
-    /* Restore theme before first paint — no animation */
-    (function () {
-      try {
-        var p = localStorage.getItem("amn_theme") || "system";
-        var d = p === "dark" || (p === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
-        var root = document.documentElement;
-        root.setAttribute("data-theme", d ? "dark" : "light");
-        root.setAttribute("data-theme-pref", p);
-        root.style.colorScheme = d ? "dark" : "light";
-        root.classList.toggle("dark", !!d);
-      } catch (e) {}
-    })();
-  </script>
+  <script src="theme-init.js"></script>
 </head>
 <body>
   <div class="popup">

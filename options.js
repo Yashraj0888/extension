@@ -256,12 +256,14 @@ async function setCurrentTemplateActive() {
 async function exportAllData() {
   const local = await new Promise((r) => chrome.storage.local.get(null, r));
   const sync = await new Promise((r) => chrome.storage.sync.get(null, r));
-  // Never export raw API keys in the backup file.
+  // Never export raw API keys or OAuth tokens in the backup file.
   if (sync.providers) {
     for (const p of Object.values(sync.providers)) {
       if (p && p.apiKey) p.apiKey = "";
     }
   }
+  delete local.google_calendar_token;
+  delete sync.geminiApiKey;
   const payload = { exportedAt: new Date().toISOString(), local, sync };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const reader = new FileReader();
