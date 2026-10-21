@@ -236,7 +236,8 @@ export function renderSummary(meeting) {
         <option value="action-items">Action items</option>
       </select>
       <button class="generate-btn" id="generateSummaryBtn">${icon("wand", 13)} Generate</button>
-      <button class="generate-btn" id="regenerateSummaryBtn" style="display:none;background:var(--bg-tint);color:var(--text-secondary);border:1px solid var(--border)">Regenerate</button>
+      <button class="generate-btn secondary-gen" id="regenerateSummaryBtn" style="display:none">Regenerate</button>
+      <button class="generate-btn secondary-gen" id="copySummaryBtn" style="display:none" title="Copy summary">${icon("copy", 13)} Copy</button>
     </div>
     <div class="summary-content" id="summaryContent">
       <p class="empty-state">Click "Generate" to create a summary for this meeting.</p>
@@ -261,32 +262,54 @@ export function renderSummary(meeting) {
     if (summaries[type]) {
       document.getElementById("summaryContent").innerHTML = renderMarkdown(summaries[type].content);
       document.getElementById("regenerateSummaryBtn").style.display = "";
+      document.getElementById("copySummaryBtn").style.display = "";
     }
   });
 
   document.getElementById("generateSummaryBtn").addEventListener("click", () => generateSummary(meeting));
   document.getElementById("regenerateSummaryBtn").addEventListener("click", () => generateSummary(meeting));
+  document.getElementById("copySummaryBtn").addEventListener("click", () => copySummary(meeting));
   document.getElementById("summaryType").addEventListener("change", async () => {
     const type = document.getElementById("summaryType").value;
     const summaries = await MeetingStore.getSummaries(meeting.id);
     if (summaries[type]) {
       document.getElementById("summaryContent").innerHTML = renderMarkdown(summaries[type].content);
       document.getElementById("regenerateSummaryBtn").style.display = "";
+      document.getElementById("copySummaryBtn").style.display = "";
     } else {
       document.getElementById("summaryContent").innerHTML =
         '<p class="empty-state">Click "Generate" to create this summary.</p>';
       document.getElementById("regenerateSummaryBtn").style.display = "none";
+      document.getElementById("copySummaryBtn").style.display = "none";
     }
   });
+}
+
+async function copySummary(meeting) {
+  const type = document.getElementById("summaryType")?.value || "executive";
+  const summaries = await MeetingStore.getSummaries(meeting.id);
+  const summary = summaries[type];
+  if (!summary?.content) {
+    showToast("Generate a summary first");
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(summary.content);
+    showToast("Summary copied");
+  } catch (_) {
+    showToast("Could not copy summary");
+  }
 }
 
 export async function generateSummary(meeting) {
   const type = document.getElementById("summaryType").value;
   const btn = document.getElementById("generateSummaryBtn");
   const regenBtn = document.getElementById("regenerateSummaryBtn");
+  const copyBtn = document.getElementById("copySummaryBtn");
   btn.disabled = true;
   btn.textContent = "Generating...";
   if (regenBtn) regenBtn.style.display = "none";
+  if (copyBtn) copyBtn.style.display = "none";
 
   try {
     const content = await AIService.summarize(meeting.transcript, type, meeting);
@@ -298,6 +321,7 @@ export async function generateSummary(meeting) {
     }
     document.getElementById("summaryContent").innerHTML = renderMarkdown(content);
     if (regenBtn) regenBtn.style.display = "";
+    if (copyBtn) copyBtn.style.display = "";
     showToast("Summary generated");
     bridge.renderSidebar?.();
 
