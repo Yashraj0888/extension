@@ -123,9 +123,9 @@ You may stop using the Software at any time by uninstalling the extension and de
 
 ## 14. Contact
 
-For security issues, see [SECURITY.md](SECURITY.md).  
-For bugs and features, open a GitHub Issue on the project repository.  
-For contribution questions, see [CONTRIBUTING.md](CONTRIBUTING.md).
+For privacy, support, or security questions about AfterMeet, email **[yashraj88813@gmail.com](mailto:yashraj88813@gmail.com)**.  
+For security reporting details, see [SECURITY.md](SECURITY.md).  
+For how we handle data, see [PRIVACY.md](PRIVACY.md).
 
 ---
 

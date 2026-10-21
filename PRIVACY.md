@@ -2,7 +2,7 @@
 
 **Last updated:** 21 October 2026
 
-This Privacy Policy explains how **AfterMeet** handles information when you use the open-source Chrome extension and local app.
+This Privacy Policy explains how **AfterMeet** (“we”, “us”) handles information when you use the AfterMeet Chrome extension and local app.
 
 AfterMeet is designed to be **local-first**: meeting content stays on your machine unless **you** send it to a third-party AI provider or export/backup it yourself.
 
@@ -10,9 +10,9 @@ AfterMeet is designed to be **local-first**: meeting content stays on your machi
 
 ## 1. Who we are
 
-AfterMeet is maintained as an open-source project. Repository maintainers do **not** run a central AfterMeet cloud that receives your transcripts by default.
+AfterMeet is a Chrome extension that helps you capture Google Meet captions, generate AI summaries and action items, and keep meeting notes on your device.
 
-If you use a fork or a redistribution packaged by someone else, that distributor’s practices may differ — review their materials.
+We do **not** operate a central AfterMeet cloud that receives your transcripts by default. There is no AfterMeet account required to use the core extension.
 
 ---
 
@@ -36,9 +36,9 @@ Local storage uses Chrome APIs such as `storage` and `unlimitedStorage`.
 
 Optional folder backup writes JSON (or similar) to a directory **you** select via the browser’s file access prompts.
 
-### Not collected by project maintainers by default
+### What we do not collect
 
-The official open-source build does **not** include analytics SDKs that phone home meeting content to AfterMeet maintainers. There is no AfterMeet account system in the core extension.
+The AfterMeet extension does **not** include analytics SDKs that send meeting content to AfterMeet servers. We do not require an AfterMeet account, and we do not receive your transcripts unless you contact us and voluntarily share them (for example when reporting a bug).
 
 ---
 
@@ -55,7 +55,7 @@ Those providers process data under their own privacy policies. Review:
 - [Anthropic privacy](https://www.anthropic.com/legal/privacy)
 - Your custom endpoint’s policy
 
-**API keys** you enter are stored locally and used to authenticate those requests. Do not share keys in issues, PRs, or screenshots.
+**API keys** you enter are stored on your device (via Chrome storage) and used only to authenticate those requests. Do not share keys in screenshots or support messages.
 
 ### Google Meet
 
@@ -65,7 +65,7 @@ Caption text is read from the Meet page in your browser only after you choose **
 
 If you connect Calendar, OAuth tokens and calendar-related requests go to Google APIs using the client configuration you supply. Tokens are stored locally. AfterMeet requests only the read-only scope `https://www.googleapis.com/auth/calendar.readonly` to show your upcoming meetings.
 
-**Google API Services User Data Policy / Limited Use.** AfterMeet’s use and transfer to any other app of information received from Google APIs will adhere to the [Google API Services User Data Policy](https://developers.google.com/terms/api-services-user-data-policy), including the Limited Use requirements. Calendar data is used only to display your upcoming meetings inside the extension on your device. It is not transferred to AfterMeet maintainers or third parties, is not used for advertising, is not sold, and is not read by humans.
+**Google API Services User Data Policy / Limited Use.** AfterMeet’s use and transfer to any other app of information received from Google APIs will adhere to the [Google API Services User Data Policy](https://developers.google.com/terms/api-services-user-data-policy), including the Limited Use requirements. Calendar data is used only to display your upcoming meetings inside the extension on your device. It is not transferred to AfterMeet or to third parties for advertising, is not sold, and is not read by humans except as needed to provide support if you explicitly share it with us.
 
 ### Fonts and other network requests
 
@@ -83,7 +83,7 @@ If you export Markdown/Word/PDF/JSON or enable folder backup, files exist wherev
 
 ## 4. Permissions (Chrome)
 
-The extension requests permissions described in `manifest.json`, including (as applicable):
+The extension requests permissions described in its Chrome Web Store listing / `manifest.json`, including (as applicable):
 
 - Access to `meet.google.com` (content script) to read captions while you capture a meeting
 - `storage` / `unlimitedStorage` to keep meeting notes locally
@@ -92,7 +92,7 @@ The extension requests permissions described in `manifest.json`, including (as a
 - Host access to the AI endpoints (Gemini, OpenAI, Anthropic, DeepSeek) and Google APIs you use
 - Optional host access, requested at runtime for one origin only, if you use a custom OpenAI-compatible endpoint
 
-Permissions exist so the extension can function; they are not a license for maintainers to access your machine.
+Permissions exist so the extension can function; they are not a license for AfterMeet to access your machine beyond what the extension needs to provide its features.
 
 ---
 
@@ -118,22 +118,25 @@ You are responsible for complying with privacy and employment laws that apply to
 
 ## 8. Security
 
-See [SECURITY.md](SECURITY.md) for how to report vulnerabilities. No method of electronic storage is 100% secure; protect your browser profile, device encryption, and API keys.
+Protect your browser profile, device encryption, and API keys. No method of electronic storage is 100% secure. To report a security issue, contact us using the details in the Contact section below.
 
 ---
 
 ## 9. Changes
 
-We may update this policy by editing this file. The “Last updated” date will change. Review it when you upgrade.
+We may update this Privacy Policy from time to time. The “Last updated” date will change when we do. Continued use of AfterMeet after an update means you accept the revised policy. Review it when you upgrade the extension.
 
 ---
 
 ## 10. Contact
 
-- Security: [SECURITY.md](SECURITY.md)
-- General questions: GitHub Issues on the project repository
-- Terms of use: [TERMS.md](TERMS.md)
+For privacy questions or security reports about AfterMeet, contact:
+
+- Email: [yashraj88813@gmail.com](mailto:yashraj88813@gmail.com)
+- Chrome Web Store listing support / contact options for AfterMeet (when published)
+
+Related: [Terms of use](TERMS.md)
 
 ---
 
-*This document describes the intended behavior of the open-source AfterMeet extension. It is not legal advice.*
+*This document describes how AfterMeet handles information. It is not legal advice.*

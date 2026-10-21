@@ -7,7 +7,7 @@
 | Latest `main` / released tag | Yes |
 | Older unpacked installs | Please update to latest before reporting duplicates |
 
-AfterMeet is distributed as source you load as an unpacked Chrome extension. Security fixes ship in this repository; reload the extension after pulling updates.
+Security fixes ship in AfterMeet updates published through the Chrome Web Store (or other official channels). Update the extension when a fix is available.
 
 ## What to report
 
@@ -23,8 +23,7 @@ Please **do not** open a public issue for unfixed vulnerabilities.
 
 ## How to report
 
-1. Prefer **GitHub Security Advisories** (Private vulnerability reporting) on this repository when enabled.
-2. Otherwise contact a maintainer listed in [`.github/CODEOWNERS`](.github/CODEOWNERS) privately.
+Email security reports privately to **[yashraj88813@gmail.com](mailto:yashraj88813@gmail.com)**. Do not open a public issue for unfixed vulnerabilities.
 
 Include:
 
@@ -44,6 +43,6 @@ Never paste live API keys, OAuth client secrets, or real meeting transcripts int
 
 ## Disclosure
 
-We aim to acknowledge reports within **7 days** and to share a remediation plan when practical. Timelines vary for a volunteer-maintained project.
+We aim to acknowledge reports within **7 days** and to share a remediation plan when practical.
 
 Thank you for helping keep AfterMeet users safe.
